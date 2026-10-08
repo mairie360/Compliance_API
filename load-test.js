@@ -69,6 +69,7 @@ const spec = loadSpec();
 const readHandlers = {
   'GET /health': ({ request }) => check(request(), { 'health 200': (r) => r.status === 200 }),
   'GET /ready': ({ request }) => check(request(), { 'ready 200': (r) => r.status === 200 }),
+  'GET /api/v1/masking-patterns': ({ request }) => check(request(), { 'patterns 200': (r) => r.status === 200 }),
   'GET /api/v1/erasures/{userId}': ({ request }) =>
     check(request({ path: { userId: 2 } }), { 'erasure read': (r) => r.status === 200 || r.status === 404 }),
 };
