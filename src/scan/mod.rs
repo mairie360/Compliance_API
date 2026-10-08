@@ -34,7 +34,10 @@ pub fn scan_interval(value: Option<&str>) -> Option<std::time::Duration> {
 #[cfg(test)]
 pub mod tests {
     use super::{run_database_scan, scan_interval};
-    use crate::store::{Action, ComplianceStore, Finding, JournalEntry, Storage, StoreError};
+    use crate::store::{
+        Action, ComplianceStore, ErasureTargets, Finding, JournalEntry, Step, StepState,
+        StepStatus, Storage, StoreError,
+    };
     use async_trait::async_trait;
     use std::sync::Mutex;
 
@@ -53,6 +56,35 @@ pub mod tests {
 
         async fn journal(&self, entry: &JournalEntry) -> Result<(), StoreError> {
             self.journal.lock().unwrap().push(entry.clone());
+            Ok(())
+        }
+
+        // The scan never touches the erasure: these are unreachable in its tests.
+        async fn user_exists(&self, _: i32) -> Result<bool, StoreError> {
+            Ok(false)
+        }
+        async fn erasure_targets(&self, _: i32) -> Result<Option<ErasureTargets>, StoreError> {
+            Ok(None)
+        }
+        async fn ensure_steps(&self, _: i32) -> Result<(), StoreError> {
+            Ok(())
+        }
+        async fn steps(&self, _: i32) -> Result<Vec<StepState>, StoreError> {
+            Ok(vec![])
+        }
+        async fn record_step(
+            &self,
+            _: i32,
+            _: Step,
+            _: StepStatus,
+            _: Option<&str>,
+        ) -> Result<(), StoreError> {
+            Ok(())
+        }
+        async fn unfinished_erasures(&self) -> Result<Vec<i32>, StoreError> {
+            Ok(vec![])
+        }
+        async fn anonymize(&self, _: i32) -> Result<(), StoreError> {
             Ok(())
         }
     }

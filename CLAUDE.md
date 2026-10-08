@@ -178,3 +178,24 @@ Every PR requests a review from the whole team, minus its author: `CarolinHugo`,
   `compliance_journal`; `POST /api/v1/scans` runs it now, `main.rs` every `SCAN_INTERVAL_SECONDS`
   (6 h by default, `0` disables it). Needs a Database image with `mair-498-01` (Database #173):
   bump `TEST_DB_VERSION` and the compose images once it is published.
+
+## Centralized erasure (MAIR-498)
+
+`POST /api/v1/erasures/{userId}` (service token) starts or resumes the erasure of a user, `GET`
+reads its steps (`erasure_steps`). `src/erasure/mod.rs` runs the steps in order, each idempotent,
+recorded and journaled as proof without the data (`compliance_journal`): Keycloak and Resend first
+(they need the e-mail / Keycloak subject of `fn_erasure_targets`), then the database
+(`anonymize_user`, only once those two are done since it clears them), then S3, Redis and the
+backup key (by user id). A failed step stays `failed` with a value-free reason and is retried by
+the background loop (`ERASURE_RETRY_SECONDS`, 300 by default); a service not configured on the
+instance is recorded `done` with "not configured on this instance" (`erasure_skipped`).
+Connectors (`src/erasure/connectors/`, env vars, all optional):
+- Keycloak: `KEYCLOAK_ADMIN_URL`, `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_ADMIN_CLIENT_ID`,
+  `KEYCLOAK_ADMIN_CLIENT_SECRET` (service account with `manage-users`); account by subject, else
+  by e-mail; 404 counts as erased.
+- Resend: `RESEND_API_KEY`, `RESEND_AUDIENCE_ID`, `RESEND_API_URL`; removes the audience contact.
+- S3: `S3_ENDPOINT`, `S3_REGION`, `S3_ERASURE_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
+  `S3_ERASURE_PREFIX` (`users/{user_id}/`).
+- Redis: `REDIS_ERASURE_URL`, `REDIS_ERASURE_PATTERNS` (comma-separated, `{user_id}` replaced).
+- Backup key: not configured until MAIR-500.
+Tests fake the store and the connectors; Keycloak and Resend are tested against `wiremock`.

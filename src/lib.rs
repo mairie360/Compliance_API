@@ -10,5 +10,6 @@
 pub mod auth;
 pub mod database;
 pub mod endpoints;
+pub mod erasure;
 pub mod scan;
 pub mod store;
