@@ -1,8 +1,8 @@
 {
-  "name": "Template API integration",
+  "name": "Compliance API integration",
   "_postman_variable_scope": "environment",
   "values": [
-    { "key": "baseUrl", "value": "http://localhost:3000", "type": "default", "enabled": true },
+    { "key": "baseUrl", "value": "http://localhost:3004", "type": "default", "enabled": true },
     { "key": "jwt_secret", "value": "b\"secret\"", "type": "default", "enabled": true },
     { "key": "admin_user_id", "value": "1", "type": "default", "enabled": true },
     { "key": "agent_user_id", "value": "2", "type": "default", "enabled": true },

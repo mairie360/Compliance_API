@@ -1,4 +1,4 @@
-use api_template::database::pg_url::build_pg_url; // change api name
+use compliance_api::database::pg_url::build_pg_url;
 use percent_encoding::percent_decode_str;
 use url::Url;
 

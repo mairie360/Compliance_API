@@ -4,13 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`API_template` is the scaffold every Mairie 360 Rust API (`Core_API`, `Project_API`, `Calendar_API`,
-`Message_API`, `ELearning_API`) was generated from. Keep it in sync with those siblings: when a
-shared pattern changes there (lib version, `main.rs` bootstrap, Docker/compose files, CI
-workflow, Renovate config), port it here. The crate is `api_template`; every spot a new API must
-rename carries a `change api name` / `change port` marker, on the same line (or on the line just
-above in the `Dockerfile`s, which forbid trailing comments). Any API name, port or URL added to the
-template must get one. The template ships no business endpoint on purpose (`v1` is an empty scope).
+`Compliance_API` (crate `compliance_api`, image `ghcr.io/mairie360/compliance-api`, dev port **3004**) is the
+GDPR compliance service of a Mairie 360 instance (MAIR-498, epic MAIR-284). One runs in every mairie's
+instance, next to the business APIs, and concentrates what touches erasure and the detection of personal data,
+so that the business services do not carry it:
+
+- **Rights**: the only service holding the Keycloak and Resend admin rights and the erasure rights on S3 and
+  Redis. No API and no BFF carries them.
+- **Continuous deterministic scan**: logs in the ingestion chain (masked before storage, a log store can hardly
+  erase a line afterwards); the database in regular passes guided by the personal data inventory
+  (Devops/Database `gdpr/inventory.yaml`: rows past their retention, erased or long-archived accounts that keep
+  usable data; the free text of messages is out of scope); S3, Keycloak, Resend; Redis keys with a long TTL only
+  (the others expire by themselves).
+- **Erasure**: any personal data that should no longer exist (leak in a log, data of an erased user, retention
+  exceeded) is erased. When a user is erased the service propagates it: Keycloak account, Resend contact, S3
+  objects, Redis keys and the user's backup encryption key (MAIR-500). Every step is replayable and retried.
+- **Compliance journal**, without the data itself: which kind of data, where (service, storage, logger,
+  column), when, and the log line with the value masked. It is also the mairie's proof of erasure (GDPR art. 28
+  and 30).
+- **Deterministic only**: no data leaves the instance.
+
+Not now (future notes, do not implement): a local AI agent with a Mistral model hosted in the instance to
+interpret the findings, and an anonymous export of the journal (line templates, kinds, places, dates) to a journal
+shared by every mairie.
+
+Generated from `API_template` (keep the shared skeleton in sync with it and the sibling APIs, see
+`../CLAUDE.md`). The first PR only adapted the template (name, port 3004, compose stacks, CI, Renovate);
+the scan, erasure and journal come next. The service ships no business endpoint yet (`v1` is an empty scope).
 
 ## Commands
 
@@ -33,12 +53,12 @@ standalone compose file, so env/image changes must be mirrored in all of them): 
 collection is a Postman v2.1 export; its pre-request script forges HS256 JWTs with the stack's
 `JWT_SECRET` (`jwt_admin` for the seeded Admin, `jwt_agent` for user 2 from `init-test.sql`, plus a
 wrong-secret and an expired token), so a new API only adds requests for its endpoints. `baseUrl` is
-overridden with `--env-var` by the compose file; the committed default targets `localhost:3000`.
+overridden with `--env-var` by the compose file; the committed default targets `localhost:3004`.
 
 In those three stacks the API service is `image: ${IMAGE_REF}` (no `build:` block): CI sets `IMAGE_REF` to the
-published `ghcr.io/mairie360/<name>:dev-<sha>` image, and the scripts build `template-api:local` from
+published `ghcr.io/mairie360/<name>:dev-<sha>` image, and the scripts build `compliance-api:local` from
 `development.Dockerfile` when it is empty. That image is distroless (no shell, no curl), so readiness is a
-`template-ready` sidecar polling `/ready` that dependent services wait on (`service_completed_successfully`). Every
+`compliance-ready` sidecar polling `/ready` that dependent services wait on (`service_completed_successfully`). Every
 stack sets `API_DOCS_ENABLED=true` (shared `x-common-env` anchor): without it the API serves neither Swagger UI nor
 `/api-docs/openapi.json`, which newman, ZAP and k6 read.
 
@@ -66,7 +86,7 @@ startup and every stack fails. A deployment never sets that variable and gets it
 
 `load-test.js` is built on `coverage.js`: one handler per operation (`"METHOD /path"`), k6 aborts at init
 otherwise; the spec it reads is the one served by the image under test, saved into the `openapi-spec` volume by
-`template-ready`. Same shape as the five APIs (MAIR-195): the spec is split by HTTP method into a `reads` scenario
+`compliance-ready`. Same shape as the five APIs (MAIR-195): the spec is split by HTTP method into a `reads` scenario
 (GET, ramp up to 20 VUs, against fixtures created in `setup()` and removed in `teardown()`) and a `writes` scenario
 (every other method, 2 VUs, each handler creating what it needs through `fixture()` and deleting it afterwards, so
 handlers are order-independent), one `p(95)` threshold per `op` tag (200 ms reads, 500 ms writes) and
@@ -129,11 +149,9 @@ mounted routes and catches it.
 `.github/workflows/cicd.yml` calls `mairie360/CICD` `APIs_cicd.yml` on pull requests (lint, build, tests) and
 on pushes to `main` (plus releases and the three stacks). Its `integration_tests`,
 `integration_and_security` and `performance_isolated` jobs run the three `*_test.sh` scripts with
-`IMAGE_REF` set to the `dev-<sha>` image published by `release-dev`; no Postman variable or secret is needed. `renovate.json` deliberately
-overrides the org preset to automerge everything (majors, 0.x, prod `Dockerfile`) with
-`ignoreTests: true` and `platformAutomerge: false`, so PRs merge even when CI fails. That is
-template-only: real APIs keep the standard config (org preset + `cicd_version` custom manager),
-and the README tells new APIs to swap it back. Don't propagate the automerge-all file to siblings.
+`IMAGE_REF` set to the `dev-<sha>` image published by `release-dev`; no Postman variable or secret is needed. `renovate.json` is the
+standard API config: org preset, GitHub Actions pinned by digest, the `cicd_version` custom manager and the
+`mairie360/CICD` group (both references in `cicd.yml` bumped in one PR).
 
 `auto-approve.yml` approves Renovate PRs on the PR author (`github.event.pull_request.user.login`, not
 `github.actor`), with `pull-requests: write` only and the action pinned by SHA. Both `Dockerfile`s pin their base

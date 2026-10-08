@@ -1,14 +1,14 @@
 volumes:
   postgres-data:
   redis-data:
-  template-target: # change api name
+  compliance-target:
 
 networks:
   backend:
 
 x-common-env: &common-env
   HOST: "0.0.0.0"
-  PORT: 3000 # change port
+  PORT: 3004
   REDIS_URL: redis://redis:6379
   DB_TYPE: postgres
   DB_NAME: mairie_360_database
@@ -23,7 +23,7 @@ services:
   postgres:
     image: ghcr.io/mairie360/database:dev-fb7c223
     restart: always
-    container_name: mairie360-db-template-api # change api name
+    container_name: mairie360-db-compliance-api
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
@@ -42,7 +42,7 @@ services:
 
   liquibase:
     image: ghcr.io/mairie360/liquibase-migrations:dev-fb7c223
-    container_name: mairie360-liquibase-template-api # change api name
+    container_name: mairie360-liquibase-compliance-api
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,7 +78,7 @@ services:
 
   redis:
     image: redis:8.4.0-bookworm
-    container_name: mairie360-redis-template-api # change api name
+    container_name: mairie360-redis-compliance-api
     restart: always
     expose:
       - "6379"
@@ -92,8 +92,8 @@ services:
       timeout: 5s
       retries: 5
 
-  template: # change api name
-    container_name: template_api-developpement # change api name
+  compliance:
+    container_name: compliance_api-developpement
     build:
       context: .
       dockerfile: development.Dockerfile
@@ -101,17 +101,17 @@ services:
       watch:
         - action: sync
           path: ./src
-          target: /usr/src/template/src # change api name
+          target: /usr/src/compliance/src
         - action: sync
           path: ./Cargo.toml
-          target: /usr/src/template/Cargo.toml # change api name
+          target: /usr/src/compliance/Cargo.toml
         - action: sync
           path: ./Cargo.lock
-          target: /usr/src/template/Cargo.lock # change api name
+          target: /usr/src/compliance/Cargo.lock
     ports:
-      - "3000:3000" # change port
+      - "3004:3004"
     volumes:
-      - template-target:/usr/src/template/target # change api name
+      - compliance-target:/usr/src/compliance/target
     networks:
       - backend
     dns:
@@ -119,7 +119,7 @@ services:
       - 1.1.1.1
     environment:
       <<: *common-env
-      PUBLIC_URL: http://template.development.mairie360.fr # change api name
+      PUBLIC_URL: http://compliance.development.mairie360.fr
       # Public test value, known to every reader of this repo: mairie360_api_lib refuses to start
       # with it unless JWT_ALLOW_WEAK_SECRET is set. Dev/test stacks only, never a deployment, where
       # JWT_SECRET is a random value of at least 32 bytes, distinct per instance (MAIR-428).
@@ -132,7 +132,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://template:3000/ready"] # change api name and port
+      test: ["CMD", "curl", "-f", "http://compliance:3004/ready"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -148,7 +148,7 @@ services:
     networks:
       - backend
     depends_on:
-      template: # change api name
+      compliance:
         condition: service_healthy
     extra_hosts:
-      - "template.development.mairie360.fr:127.0.0.1" # change api name
+      - "compliance.development.mairie360.fr:127.0.0.1"
