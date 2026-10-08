@@ -31,9 +31,7 @@ async fn run(args: &[String]) -> Result<String, String> {
         .ok_or("the key manager is not configured (SCW_SECRET_KEY, SCW_DEFAULT_PROJECT_ID)")?;
     match args {
         [command, url, inventory, out] if command == "seal" => {
-            let pool = sqlx::PgPool::connect(url)
-                .await
-                .map_err(|_| "cannot connect to the copy".to_owned())?;
+            let pool = connect(url).await?;
             let inventory = std::fs::read_to_string(inventory)
                 .map_err(|e| format!("cannot read the inventory: {e}"))?;
             let plans = plan::plan(&inventory, &seal::referenced_tables(&pool).await?)?;
@@ -46,9 +44,7 @@ async fn run(args: &[String]) -> Result<String, String> {
             ))
         }
         [command, url, input] if command == "unseal" => {
-            let pool = sqlx::PgPool::connect(url)
-                .await
-                .map_err(|_| "cannot connect to the restored database".to_owned())?;
+            let pool = connect(url).await?;
             let report = seal::unseal(&pool, &keys, Path::new(input)).await?;
             Ok(format!(
                 "restored {} users, {} left sealed (erased)",
