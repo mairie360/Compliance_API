@@ -1,0 +1,14 @@
+# Every ignored advisory says why it does not apply and when to drop it (MAIR-427).
+[advisories]
+ignore = [
+    # rsa (Marvin attack, no patched release): timing leak of an RSA *private* key during
+    # decryption / signing. Pulled by jsonwebtoken, which the APIs use for HS256 tokens and to
+    # *verify* Keycloak RS256 tokens with the realm's public key: no RSA private key is ever loaded.
+    # Drop it once jsonwebtoken ships a fixed rsa, or if an API starts signing with RSA.
+    "RUSTSEC-2023-0071",
+    # h2 0.3 (unbounded empty DATA frames, fixed in 0.4.16 only): pulled by actix-http's default
+    # `http2` feature, which the lib and utoipa-swagger-ui enable. `main.rs` binds plain HTTP/1.1
+    # (`HttpServer::bind`, no TLS, no h2c), so no HTTP/2 frame is ever parsed. Drop it once actix-http
+    # moves to h2 0.4.
+    "RUSTSEC-2026-0258",
+]

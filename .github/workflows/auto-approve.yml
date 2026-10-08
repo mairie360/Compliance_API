@@ -1,0 +1,17 @@
+name: Auto Approve Renovate
+on: pull_request_target
+
+jobs:
+  auto-approve:
+    runs-on: ubuntu-latest
+    # Approving only needs to write the review: no checkout, no push.
+    permissions:
+      pull-requests: write
+    # Match the PR author, not the event actor, so a Renovate PR is still approved
+    # after a maintainer pushes a fix or updates the branch.
+    if: github.event.pull_request.user.login == 'renovate[bot]'
+    steps:
+      # Pinned by SHA: `pull_request_target` runs with a write token, a moved tag must not change the code.
+      - uses: hmarr/auto-approve-action@f0939ea97e9205ef24d872e76833fa908a770363 # v4.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

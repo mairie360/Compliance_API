@@ -1,0 +1,29 @@
+[package]
+name = "api_template" # change api name
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "4"
+mairie360_api_lib = "3.0.0"
+percent-encoding = "2.3"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tokio = { version = "1.46.0", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+utoipa = { version = "6", features = ["actix_extras", "yaml"] }
+utoipa-swagger-ui = { version = "10", features = ["actix-web"] }
+
+[dev-dependencies]
+mairie360_api_lib = { version = "3.0.0", features = ["test-utils"] }
+jsonwebtoken = "11"
+serial_test = "4.0.0"
+url = "2.5"
+
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3

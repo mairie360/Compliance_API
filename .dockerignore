@@ -1,0 +1,34 @@
+# Target directory (compiled files)
+target
+
+# Build artifacts
+*.rlib
+*.rmeta
+*.dSYM/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Debug and log files
+*.log
+
+# Misc
+.DS_Store
+*.pem
+
+# Environment files (if any)
+.env*
+
+# IDE/editor settings
+.vscode/
+.idea/
+
+# Cargo package registry and git dependencies (optional)
+.cargo/
+.git/
+
+# Docker files
+.dockerignore
+Dockerfile
+development.Dockerfile

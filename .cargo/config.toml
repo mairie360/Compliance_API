@@ -1,0 +1,23 @@
+[alias]
+
+#This alias check the lint
+lint_check = "fmt --all -- --check"
+
+# This alias formats the code
+lint_fix = "fmt --all"
+
+# This alias check the code
+check_code = "clippy --all-targets --all-features -- -D warnings"
+
+# This alias generate the OpenAPI documentation
+open_api = "run --example generate_openapi"
+
+cov_test = ["llvm-cov", "--workspace", "--ignore-filename-regex", "main\\.rs|lib\\.rs", "--fail-under-lines", "60"]
+
+cov = ["llvm-cov", "--workspace", "--ignore-filename-regex", "main\\.rs|lib\\.rs", "--fail-under-lines", "60", "--codecov", "--output-path", "codecov.json"]
+
+# Version of the ghcr.io/mairie360/database and liquibase-migrations images the tests start
+# (mairie360_api_lib::test_setup), kept equal to the compose files: the latest published
+# dev-<sha> image of Devops/Database. An exported TEST_DB_VERSION still wins.
+[env]
+TEST_DB_VERSION = "dev-fb7c223"

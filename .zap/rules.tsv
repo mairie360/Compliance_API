@@ -1,0 +1,9 @@
+10015	IGNORE	Re-examine Cache-control Directives
+10027	IGNORE	Information Disclosure - Suspicious Comments
+10049	IGNORE	Storable and Cacheable Content
+10050	IGNORE	Retrieved from Cache
+10096	IGNORE	Timestamp Disclosure - Unix
+10109	IGNORE	Modern Web Application
+10112	IGNORE	Session Management Response Identified
+90005	IGNORE	Sec-Fetch-* Headers Not Present (API, not applicable)
+100001	OUTOFSCOPE	.*/swagger-ui/.*

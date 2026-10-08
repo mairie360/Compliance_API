@@ -1,0 +1,165 @@
+volumes:
+  postgres-data:
+  redis-data:
+  openapi-spec:
+
+networks:
+  backend:
+
+x-common-env: &common-env
+  HOST: "0.0.0.0"
+  PORT: 3000 # change port
+  REDIS_URL: redis://redis:6379
+  DB_TYPE: postgres
+  DB_NAME: mairie_360_database
+  DB_USER: postgres
+  DB_HOST: postgres
+  DB_PASSWORD: password
+  DB_PORT: 5432
+  # Serves Swagger UI and /api-docs/openapi.json: dev and test stacks only, never production.
+  API_DOCS_ENABLED: "true"
+
+services:
+  postgres:
+    image: ghcr.io/mairie360/database:dev-fb7c223
+    restart: always
+    container_name: mairie360-db-template-api # change api name
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: mairie_360_database
+    expose:
+      - "5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  liquibase:
+    image: ghcr.io/mairie360/liquibase-migrations:dev-fb7c223
+    container_name: mairie360-liquibase-template-api # change api name
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/mairie_360_database
+      LIQUIBASE_COMMAND_USERNAME: ${DB_USER:-postgres}
+      LIQUIBASE_COMMAND_PASSWORD: ${DB_PASSWORD:-password}
+      LIQUIBASE_SEARCH_PATH: /migrations
+    # Database >= MAIR-413 refuses to seed the admin (users.id = 1) without credentials: this
+    # throwaway stack uses the public template admin. Never pass the flag on a real instance.
+    command: >
+      --changelog-file=changelog.xml
+      update
+      -Dallow_template_admin=true
+    networks:
+      - backend
+
+  seeder:
+    image: postgres:18-alpine
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+    volumes:
+      - ./init-test.sql:/init-test.sql:ro
+    # ON_ERROR_STOP: a failing fixture must fail the stack, not leave k6 running without its users.
+    command: >
+      psql -h postgres -U postgres -d mairie_360_database -v ON_ERROR_STOP=1 -f /init-test.sql
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-password}
+    networks:
+      - backend
+
+  redis:
+    image: redis:8.4.0-bookworm
+    container_name: mairie360-redis-template-api # change api name
+    restart: always
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  template: # change api name
+    container_name: template_api-developpement # change api name
+    # The API under test: the published ghcr.io/mairie360/template-api:dev-<sha> image in CI, or # change api name
+    # template-api:local built by the *_test.sh script from development.Dockerfile. No build: block,
+    # so CI tests the artifact that gets promoted instead of recompiling the sources.
+    image: ${IMAGE_REF:?IMAGE_REF must name the API image under test, run the matching *_test.sh script}
+    ports:
+      - "3000:3000" # change port
+    networks:
+      - backend
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      <<: *common-env
+      PUBLIC_URL: http://template.development.mairie360.fr # change api name
+      # Public test value, known to every reader of this repo: mairie360_api_lib refuses to start
+      # with it unless JWT_ALLOW_WEAK_SECRET is set. Dev/test stacks only, never a deployment, where
+      # JWT_SECRET is a random value of at least 32 bytes, distinct per instance (MAIR-428).
+      JWT_SECRET: b"secret"
+      JWT_TIMEOUT: 3600
+      JWT_ALLOW_WEAK_SECRET: "true"
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # The published image is distroless (no shell, no curl), so the API cannot carry its own
+  # healthcheck: this sidecar polls /ready (Postgres and Redis reachable) and the services that
+  # need the API wait for it to complete instead.
+  # It also saves the spec served by the image under test into the `openapi-spec` volume: that
+  # is the coverage reference of load-test.js (openapi.json is gitignored, so the CI checkout has
+  # none, and the served spec is the one of the exact image being tested).
+  template-ready: # change api name
+    image: curlimages/curl:latest
+    # Root, to write into the freshly created `openapi-spec` volume.
+    user: "0"
+    depends_on:
+      template: # change api name
+        condition: service_started
+    volumes:
+      - openapi-spec:/spec
+    command: > # change api name and port
+      sh -c 'until curl -fsS http://template:3000/ready >/dev/null; do
+      echo "waiting for template..."; sleep 2; done;
+      curl -fsS -o /spec/openapi.json http://template:3000/api-docs/openapi.json && echo "template ready"'
+    networks:
+      - backend
+
+  k6-perf-test:
+    image: grafana/k6:latest
+    networks:
+      - backend
+    # load-test.js declares one handler per operation of the spec through the shared OpenAPI
+    # coverage module (MAIR-194, mairie360/CICD tests/k6, see performance_test.sh): k6 aborts at
+    # init when an operation has no handler, and fails its thresholds when one is not exercised.
+    volumes:
+      - ./load-test.js:/load-test.js:ro
+      - ./cicd-repo/tests/k6/coverage.js:/coverage.js:ro
+      - openapi-spec:/spec:ro
+    command: ["run", "/load-test.js"]
+    environment:
+      - BASE_URL=http://template:3000 # change api name and port
+      - OPENAPI_SPEC=/spec/openapi.json
+    depends_on:
+      template-ready: # change api name
+        condition: service_completed_successfully
+      # The fixtures load-test.js relies on (init-test.sql).
+      seeder:
+        condition: service_completed_successfully

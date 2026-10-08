@@ -1,0 +1,177 @@
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  backend:
+
+x-common-env: &common-env
+  HOST: "0.0.0.0"
+  PORT: 3000 # change port
+  REDIS_URL: redis://redis:6379
+  DB_TYPE: postgres
+  DB_NAME: mairie_360_database
+  DB_USER: postgres
+  DB_HOST: postgres
+  DB_PASSWORD: password
+  DB_PORT: 5432
+  # Serves Swagger UI and /api-docs/openapi.json: dev and test stacks only, never production.
+  API_DOCS_ENABLED: "true"
+
+services:
+  postgres:
+    image: ghcr.io/mairie360/database:dev-fb7c223
+    restart: always
+    container_name: mairie360-db-template-api # change api name
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: mairie_360_database
+    expose:
+      - "5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  liquibase:
+    image: ghcr.io/mairie360/liquibase-migrations:dev-fb7c223
+    container_name: mairie360-liquibase-template-api # change api name
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/mairie_360_database
+      LIQUIBASE_COMMAND_USERNAME: ${DB_USER:-postgres}
+      LIQUIBASE_COMMAND_PASSWORD: ${DB_PASSWORD:-password}
+      LIQUIBASE_SEARCH_PATH: /migrations
+    # Database >= MAIR-413 refuses to seed the admin (users.id = 1) without credentials: this
+    # throwaway stack uses the public template admin. Never pass the flag on a real instance.
+    command: >
+      --changelog-file=changelog.xml
+      update
+      -Dallow_template_admin=true
+    networks:
+      - backend
+
+  seeder:
+    image: postgres:18-alpine
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+    volumes:
+      - ./init-test.sql:/init-test.sql:ro
+    # ON_ERROR_STOP: a failing fixture must fail the stack, not leave ZAP scanning without users.
+    command: >
+      psql -h postgres -U postgres -d mairie_360_database -v ON_ERROR_STOP=1 -f /init-test.sql
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-password}
+    networks:
+      - backend
+
+  redis:
+    image: redis:8.4.0-bookworm
+    container_name: mairie360-redis-template-api # change api name
+    restart: always
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  template: # change api name
+    container_name: template_api-developpement # change api name
+    # The API under test: the published ghcr.io/mairie360/template-api:dev-<sha> image in CI, or # change api name
+    # template-api:local built by the *_test.sh script from development.Dockerfile. No build: block,
+    # so CI tests the artifact that gets promoted instead of recompiling the sources.
+    image: ${IMAGE_REF:?IMAGE_REF must name the API image under test, run the matching *_test.sh script}
+    ports:
+      - "3000:3000" # change port
+    networks:
+      - backend
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      <<: *common-env
+      PUBLIC_URL: http://template.development.mairie360.fr # change api name
+      # Public test value, known to every reader of this repo: mairie360_api_lib refuses to start
+      # with it unless JWT_ALLOW_WEAK_SECRET is set. Dev/test stacks only, never a deployment, where
+      # JWT_SECRET is a random value of at least 32 bytes, distinct per instance (MAIR-428).
+      JWT_SECRET: b"secret"
+      JWT_TIMEOUT: 3600
+      JWT_ALLOW_WEAK_SECRET: "true"
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # The published image is distroless (no shell, no curl), so the API cannot carry its own
+  # healthcheck: this sidecar polls /ready (Postgres and Redis reachable) and the services that
+  # need the API wait for it to complete instead.
+  template-ready: # change api name
+    image: curlimages/curl:latest
+    depends_on:
+      template: # change api name
+        condition: service_started
+    command: > # change api name and port
+      sh -c 'until curl -fsS http://template:3000/ready >/dev/null; do
+      echo "waiting for template..."; sleep 2; done; echo "template ready"'
+    networks:
+      - backend
+
+  security-scan:
+    image: zaproxy/zap-stable
+    networks:
+      - backend
+    depends_on:
+      template-ready: # change api name
+        condition: service_completed_successfully
+      seeder:
+        condition: service_completed_successfully
+    volumes:
+      - ./.zap/rules.tsv:/zap/wrk/rules.tsv:ro
+      # OpenAPI coverage gate (MAIR-194), from the CICD checkout (see security_test.sh).
+      - ./cicd-repo/tests/zap/zap_hooks.py:/zap/wrk/zap_hooks.py:ro
+    # -t: the spec the API serves itself (utoipa), so ZAP imports every operation.
+    # -O: the spec's `servers` (localhost, development.mairie360.fr) are unreachable from this
+    #   container; send every imported request to the API service instead.
+    # -c rules.tsv: informational alerts are set to IGNORE; any other alert (WARN/FAIL) makes
+    #   zap-api-scan.py exit != 0, which fails the job (no -I).
+    # -z replacer: injects a static HS256 JWT (sub=1, the Admin seeded by liquibase, role=admin,
+    #   exp=2100, signed with JWT_SECRET=b"secret") on every request, so the authenticated routes
+    #   are scanned instead of answering 401.
+    # --hook zap_hooks.py: OpenAPI coverage gate (mairie360/CICD tests/zap). After the scan it maps
+    #   every request ZAP sent to an operation of the spec and exits 1 when an operation was never
+    #   reached, or when an operation that requires `jwt` only got 401/403.
+    # -silent: no add-on update check or telemetry at daemon start (it can hang the scan with
+    #   "Failed to connect to ZAP after 600 seconds").
+    # -z is split with shlex: 'Bearer <jwt>' must stay quoted, otherwise ZAP only receives
+    #   "Bearer" and the token is read as a file name.
+    command:
+      - zap-api-scan.py
+      - -t
+      - http://template:3000/api-docs/openapi.json # change api name and port
+      - -f
+      - openapi
+      - -O
+      - http://template:3000 # change api name and port
+      - -c
+      - rules.tsv
+      - --hook
+      - /zap/wrk/zap_hooks.py
+      - -z
+      - "-silent -config replacer.full_list(0).description=auth -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Authorization -config replacer.full_list(0).regex=false -config replacer.full_list(0).replacement='Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwiZXhwIjo0MTAyNDQ0ODAwfQ.xCeBe_2QxRlXW8WXr3t6F69wbEHA93HbP_7l4OTJwjA'"
