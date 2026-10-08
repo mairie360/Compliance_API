@@ -5,6 +5,9 @@
 //!   compliance-backup seal   <database url> <inventory.yaml> <out dir>
 //!   compliance-backup unseal <database url> <in dir>
 //!
+//! `<database url>` may be `env`: the libpq variables (`PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`,
+//! `PGDATABASE`) are read instead, so that a password never goes through a URL or a command line.
+//!
 //! The key manager comes from `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_REGION` (see
 //! `backup::keys`). Exit 0 / 1 (failed: the backup must not be shipped) / 2 (usage).
 
@@ -12,6 +15,15 @@ use compliance_api::backup::keys::ScalewayKeyManager;
 use compliance_api::backup::{plan, seal};
 use std::path::Path;
 use std::process::ExitCode;
+
+async fn connect(url: &str) -> Result<sqlx::PgPool, String> {
+    let result = if url == "env" {
+        sqlx::PgPool::connect_with(sqlx::postgres::PgConnectOptions::new()).await
+    } else {
+        sqlx::PgPool::connect(url).await
+    };
+    result.map_err(|_| "cannot connect to the database".to_owned())
+}
 
 async fn run(args: &[String]) -> Result<String, String> {
     let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
