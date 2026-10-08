@@ -15,7 +15,7 @@ use compliance_api::endpoints::swagger::{api_docs_enabled, ApiDoc, API_DOCS_ENAB
 use compliance_api::endpoints::{config, health};
 use compliance_api::erasure::connectors::Connectors;
 use compliance_api::erasure::{retry_unfinished, DEFAULT_RETRY_SECONDS};
-use compliance_api::scan::{run_database_scan, scan_interval};
+use compliance_api::scan::{run_scans, scan_interval};
 use compliance_api::store::pg::PgStore;
 
 use mairie360_api_lib::env_manager::{get_critical_env_var, get_env_var};
@@ -62,7 +62,7 @@ async fn main() -> std::io::Result<()> {
             let mut ticker = tokio::time::interval(interval);
             loop {
                 ticker.tick().await;
-                if let Err(error) = run_database_scan(&store).await {
+                if let Err(error) = run_scans(&store).await {
                     tracing::error!(error = %error, "scheduled compliance scan failed");
                 }
             }

@@ -2,6 +2,8 @@
 //! (counts and locations only) and returns them. Started on demand (`POST /api/v1/scans`) and
 //! every `SCAN_INTERVAL_SECONDS` (6 hours by default) by `main.rs`.
 
+pub mod redis_keys;
+
 use crate::store::{ComplianceStore, Finding, JournalEntry, StoreError};
 
 /// Default period of the background scan.
@@ -19,6 +21,23 @@ pub async fn run_database_scan(store: &dyn ComplianceStore) -> Result<Vec<Findin
         store.journal(&JournalEntry::finding(finding)).await?;
     }
     tracing::info!(findings = findings.len(), "database compliance scan done");
+    Ok(findings)
+}
+
+/// Runs the database scan, then the scan of the long-lived Redis keys when `REDIS_SCAN_URL` is set.
+///
+/// # Errors
+///
+/// The first scan that cannot run.
+pub async fn run_scans(store: &dyn ComplianceStore) -> Result<Vec<Finding>, StoreError> {
+    let mut findings = run_database_scan(store).await?;
+    let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    if let Some(keys) = redis_keys::RedisKeySpace::from_env(&var) {
+        let long_ttl = var("REDIS_LONG_TTL_SECONDS")
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(redis_keys::DEFAULT_LONG_TTL_SECONDS);
+        findings.extend(redis_keys::run_redis_scan(store, &keys, long_ttl).await?);
+    }
     Ok(findings)
 }
 

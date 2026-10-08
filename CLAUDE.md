@@ -199,3 +199,16 @@ Connectors (`src/erasure/connectors/`, env vars, all optional):
 - Redis: `REDIS_ERASURE_URL`, `REDIS_ERASURE_PATTERNS` (comma-separated, `{user_id}` replaced).
 - Backup key: not configured until MAIR-500.
 Tests fake the store and the connectors; Keycloak and Resend are tested against `wiremock`.
+
+## Log masking patterns and Redis key scan (MAIR-498)
+
+`masking-patterns.yaml` (embedded by `src/masking.rs`) lists the personal data a log line must
+never carry (e-mail, French phone number, JWT, bearer token, argon2 hash), as RE2-compatible
+regexes with their replacement. `GET /api/v1/masking-patterns` (service token) serves them; the
+instance's OpenTelemetry Collector (Deploiment) applies them before storage. IP addresses are kept
+on purpose (security logs). Every pattern has a test in `src/masking.rs`; keep them RE2-only (no
+look-around, no back-reference), the collector runs Go regexes.
+`src/scan/redis_keys.rs` scans the keys of `REDIS_SCAN_URL` (optional) with `SCAN`, groups them by
+prefix (before the first `:`) and journals `redis_no_ttl` / `redis_long_ttl` (TTL above
+`REDIS_LONG_TTL_SECONDS`, 30 days by default): counts per prefix, never a key or a value. It runs
+with the database scan (`run_scans`), from `POST /api/v1/scans` and the background loop.
