@@ -18,6 +18,9 @@ x-common-env: &common-env
   DB_PORT: 5432
   # Serves Swagger UI and /api-docs/openapi.json: dev and test stacks only, never production.
   API_DOCS_ENABLED: "true"
+  # Traces OpenTelemetry (MAIR-503), off unless an OTLP/HTTP endpoint is set, e.g. a local
+  # collector listening on the host: OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+  # OTEL_SERVICE_NAME: compliance-api
 
 services:
   postgres:

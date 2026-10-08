@@ -144,6 +144,28 @@ mounted routes and catches it.
   `tx.commit().await?`. An early `?` drops `tx` and rolls back what already ran; never compensate by hand with a
   `DELETE` whose error is ignored. A single CTE statement is fine too. `tests/transaction_test.rs` is the example.
 
+## Observability (MAIR-503)
+
+`src/telemetry.rs` (same approach as the Core API POC, MAIR-131) installs the stdout logs (`telemetry::log_layer`,
+`RUST_LOG`, default `info`) and, when `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) is
+set, exports the traces over OTLP/HTTP (protobuf) to the agent relaying to Scaleway Cockpit (e.g.
+`http://alloy:4318`, `/v1/traces` is appended). Nothing changes without it; `OTEL_SDK_DISABLED=true` forces it off;
+`OTEL_SERVICE_NAME` defaults to `compliance-api`; a failure to build the exporter is printed and never stops the API.
+
+- `main.rs` wraps the app in `tracing_actix_web::TracingLogger`, inside the request log (`middleware::Logger`,
+  kept), so requests refused by `JwtMiddleware` get a span too. Root spans are named `<METHOD> <route pattern>`,
+  carry `http.*` attributes and continue an incoming `traceparent`. The SQL of `mairie360_api_lib` (sqlx) appears
+  as span **events** (`db.statement` with `$n` placeholders, never the bound values).
+- No personal data leaves in a span (MAIR-290, MAIR-501): `telemetry::Redact` drops `http.client_ip` and the
+  query string of `http.target` before the export, and the trace layer ignores the request log. Build providers
+  with `telemetry::tracer_provider`, never `SdkTracerProvider::builder()` directly. The root span also holds them in
+  memory, so `log_layer` hides it from the logs (the fmt layer would print its fields in front of every event).
+- The `opentelemetry*`, `opentelemetry-otlp`, `opentelemetry_sdk`, `tracing-opentelemetry` and
+  `tracing-actix-web` versions are coupled (0.32 / 0.33 / 0.7 with `opentelemetry_0_32`): bump them together.
+- `tests/telemetry_test.rs` asserts the span of `/ready`, the continued trace id and its SQL event against an
+  in-memory exporter, and (without database) that neither the spans nor the logs carry the query string or the
+  client address.
+
 ## CI and Renovate
 
 `.github/workflows/cicd.yml` calls `mairie360/CICD` `APIs_cicd.yml` on pull requests (lint, build, tests) and
