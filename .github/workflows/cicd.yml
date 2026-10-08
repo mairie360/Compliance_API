@@ -20,7 +20,7 @@ jobs:
       packages: write
       id-token: write
     with:
-      package_name: template-api # change api name
+      package_name: compliance-api
       cicd_version: v4.2.0
     # Only the secrets the reusable workflow declares, instead of `secrets: inherit`.
     secrets:

@@ -31,11 +31,7 @@ RUN touch src/main.rs src/lib.rs && cargo build --release --locked
 # owned by root (read + execute only for the runtime user).
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 WORKDIR /app
-
-# change api name
-COPY --from=builder /usr/src/app/target/release/api_template /app/template-api
+COPY --from=builder /usr/src/app/target/release/compliance_api /app/compliance-api
 
 USER 65532:65532
-
-# change api name
-CMD ["/app/template-api"]
+CMD ["/app/compliance-api"]

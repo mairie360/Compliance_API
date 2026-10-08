@@ -9,10 +9,10 @@
 
 use actix_web::{middleware, web, App, HttpServer};
 
-use api_template::database::pg_url::build_pg_url; // change api name
-use api_template::endpoints::health::wait_for_postgres; // change api name
-use api_template::endpoints::swagger::{api_docs_enabled, ApiDoc, API_DOCS_ENABLED}; // change api name
-use api_template::endpoints::{config, health}; // change api name
+use compliance_api::database::pg_url::build_pg_url;
+use compliance_api::endpoints::health::wait_for_postgres;
+use compliance_api::endpoints::swagger::{api_docs_enabled, ApiDoc, API_DOCS_ENABLED};
+use compliance_api::endpoints::{config, health};
 
 use mairie360_api_lib::env_manager::{get_critical_env_var, get_env_var};
 use mairie360_api_lib::security::JwtMiddleware;

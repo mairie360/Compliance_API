@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "Template API integration tests",
+    "name": "Compliance API integration tests",
     "description": "Smoke tests replayed by newman in CI (MAIR-117). `baseUrl` is injected by docker-compose-integration.yml; the default in environment.json targets a local stack. JWTs are forged in the collection pre-request script with the stack's JWT_SECRET for the seeded Admin (user 1) and a plain user (user 2, seeded by init-test.sql). The template has no business endpoint: this collection covers the service probes, the OpenAPI document and the JWT gate. A new API keeps these folders and adds its own scenario (see the sibling APIs for the pattern).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
@@ -282,8 +282,8 @@
                   "pm.test(\"Status is 404\", function () {",
                   "    pm.response.to.have.status(404);",
                   "});",
-                  "pm.test(\"Nothing is mounted under /api/v1 in the template\", function () {",
-                  "    // 404 rather than 401: the JWT was accepted, the template just has no route there yet.",
+                  "pm.test(\"Nothing is mounted under /api/v1 in the compliance service yet\", function () {",
+                  "    // 404 rather than 401: the JWT was accepted, the service has no route there yet.",
                   "    pm.expect(pm.response.code).to.not.eql(401);",
                   "});"
                 ]

@@ -1,5 +1,5 @@
 [package]
-name = "api_template" # change api name
+name = "compliance_api"
 version = "0.1.0"
 edition = "2021"
 

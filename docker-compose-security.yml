@@ -7,7 +7,7 @@ networks:
 
 x-common-env: &common-env
   HOST: "0.0.0.0"
-  PORT: 3000 # change port
+  PORT: 3004
   REDIS_URL: redis://redis:6379
   DB_TYPE: postgres
   DB_NAME: mairie_360_database
@@ -22,7 +22,7 @@ services:
   postgres:
     image: ghcr.io/mairie360/database:dev-fb7c223
     restart: always
-    container_name: mairie360-db-template-api # change api name
+    container_name: mairie360-db-compliance-api
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
@@ -41,7 +41,7 @@ services:
 
   liquibase:
     image: ghcr.io/mairie360/liquibase-migrations:dev-fb7c223
-    container_name: mairie360-liquibase-template-api # change api name
+    container_name: mairie360-liquibase-compliance-api
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,7 +77,7 @@ services:
 
   redis:
     image: redis:8.4.0-bookworm
-    container_name: mairie360-redis-template-api # change api name
+    container_name: mairie360-redis-compliance-api
     restart: always
     expose:
       - "6379"
@@ -91,14 +91,14 @@ services:
       timeout: 5s
       retries: 5
 
-  template: # change api name
-    container_name: template_api-developpement # change api name
-    # The API under test: the published ghcr.io/mairie360/template-api:dev-<sha> image in CI, or # change api name
-    # template-api:local built by the *_test.sh script from development.Dockerfile. No build: block,
+  compliance:
+    container_name: compliance_api-developpement
+    # The API under test: the published ghcr.io/mairie360/compliance-api:dev-<sha> image in CI, or
+    # compliance-api:local built by the *_test.sh script from development.Dockerfile. No build: block,
     # so CI tests the artifact that gets promoted instead of recompiling the sources.
     image: ${IMAGE_REF:?IMAGE_REF must name the API image under test, run the matching *_test.sh script}
     ports:
-      - "3000:3000" # change port
+      - "3004:3004"
     networks:
       - backend
     dns:
@@ -106,7 +106,7 @@ services:
       - 1.1.1.1
     environment:
       <<: *common-env
-      PUBLIC_URL: http://template.development.mairie360.fr # change api name
+      PUBLIC_URL: http://compliance.development.mairie360.fr
       # Public test value, known to every reader of this repo: mairie360_api_lib refuses to start
       # with it unless JWT_ALLOW_WEAK_SECRET is set. Dev/test stacks only, never a deployment, where
       # JWT_SECRET is a random value of at least 32 bytes, distinct per instance (MAIR-428).
@@ -122,14 +122,14 @@ services:
   # The published image is distroless (no shell, no curl), so the API cannot carry its own
   # healthcheck: this sidecar polls /ready (Postgres and Redis reachable) and the services that
   # need the API wait for it to complete instead.
-  template-ready: # change api name
+  compliance-ready:
     image: curlimages/curl:latest
     depends_on:
-      template: # change api name
+      compliance:
         condition: service_started
-    command: > # change api name and port
-      sh -c 'until curl -fsS http://template:3000/ready >/dev/null; do
-      echo "waiting for template..."; sleep 2; done; echo "template ready"'
+    command: >
+      sh -c 'until curl -fsS http://compliance:3004/ready >/dev/null; do
+      echo "waiting for compliance..."; sleep 2; done; echo "compliance ready"'
     networks:
       - backend
 
@@ -138,7 +138,7 @@ services:
     networks:
       - backend
     depends_on:
-      template-ready: # change api name
+      compliance-ready:
         condition: service_completed_successfully
       seeder:
         condition: service_completed_successfully
@@ -164,11 +164,11 @@ services:
     command:
       - zap-api-scan.py
       - -t
-      - http://template:3000/api-docs/openapi.json # change api name and port
+      - http://compliance:3004/api-docs/openapi.json
       - -f
       - openapi
       - -O
-      - http://template:3000 # change api name and port
+      - http://compliance:3004
       - -c
       - rules.tsv
       - --hook

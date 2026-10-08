@@ -1,6 +1,6 @@
 use actix_web::{http::Method, test, web, App, HttpResponse};
-use api_template::endpoints::swagger::ApiDoc;
-use api_template::endpoints::{config, health};
+use compliance_api::endpoints::swagger::ApiDoc;
+use compliance_api::endpoints::{config, health};
 use utoipa::OpenApi;
 
 // Every operation published in the OpenAPI contract (the one the `@mairie360/<name>-api-openapi` package is
