@@ -9,6 +9,9 @@ async-trait = "0.1.89"
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 mairie360_api_lib = "3.0.0"
 percent-encoding = "2.3"
+redis = { version = "1.0.3", features = ["tokio-comp"] }
+reqwest = { version = "0.13.4", features = ["json", "form"] }
+rust-s3 = { version = "0.38.0", default-features = false, features = ["tokio-rustls-tls"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 tokio = { version = "1.46.0", features = ["full"] }
@@ -22,6 +25,7 @@ mairie360_api_lib = { version = "3.0.0", features = ["test-utils"] }
 jsonwebtoken = "11"
 serial_test = "4.0.0"
 url = "2.5"
+wiremock = "0.6.5"
 
 
 [profile.dev]

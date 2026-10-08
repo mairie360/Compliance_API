@@ -13,6 +13,8 @@ use compliance_api::database::pg_url::build_pg_url;
 use compliance_api::endpoints::health::wait_for_postgres;
 use compliance_api::endpoints::swagger::{api_docs_enabled, ApiDoc, API_DOCS_ENABLED};
 use compliance_api::endpoints::{config, health};
+use compliance_api::erasure::connectors::Connectors;
+use compliance_api::erasure::{retry_unfinished, DEFAULT_RETRY_SECONDS};
 use compliance_api::scan::{run_database_scan, scan_interval};
 use compliance_api::store::pg::PgStore;
 
@@ -66,6 +68,26 @@ async fn main() -> std::io::Result<()> {
             }
         });
     }
+    // Erasure connectors (MAIR-498) and the background retry of the unfinished erasures, every
+    // ERASURE_RETRY_SECONDS (5 min by default).
+    let connectors = web::Data::new(Connectors::from_env());
+    {
+        let store = PgStore::new(state.get_smart_db().clone());
+        let connectors = connectors.clone();
+        let seconds = get_env_var("ERASURE_RETRY_SECONDS")
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(DEFAULT_RETRY_SECONDS)
+            .max(10);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(seconds));
+            loop {
+                ticker.tick().await;
+                if let Err(error) = retry_unfinished(&store, &connectors).await {
+                    tracing::error!(error = %error, "erasure retry failed");
+                }
+            }
+        });
+    }
     let data = web::Data::new(state);
     let host = get_critical_env_var("HOST");
     let port = get_critical_env_var("PORT");
@@ -76,6 +98,7 @@ async fn main() -> std::io::Result<()> {
     let server = HttpServer::new(move || {
         App::new()
             .app_data(data.clone())
+            .app_data(connectors.clone())
             .wrap(middleware::Logger::default())
             // Every response is JSON or plain text: forbid browsers from sniffing it as HTML.
             .wrap(middleware::DefaultHeaders::new().add(("X-Content-Type-Options", "nosniff")))
