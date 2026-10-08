@@ -59,7 +59,10 @@ impl Connectors {
             resend: Box::new(resend::ResendConnector::from_env(&var)),
             s3: Box::new(s3::S3Connector::from_env(&var)),
             redis: Box::new(redis_keys::RedisConnector::from_env(&var)),
-            backup_key: Box::new(backup_key::BackupKeyConnector),
+            backup_key: Box::new(backup_key::BackupKeyConnector::new(
+                crate::backup::keys::ScalewayKeyManager::from_env(&var)
+                    .map(|k| Box::new(k) as Box<dyn crate::backup::keys::KeyManager>),
+            )),
         }
     }
 }

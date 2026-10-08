@@ -5,7 +5,10 @@ edition = "2021"
 
 [dependencies]
 actix-web = "4"
+# Per-user backup encryption (MAIR-500): AES-256-GCM, keys wrapped by the instance key manager.
+aes-gcm = "0.10.3"
 async-trait = "0.1.89"
+base64 = "0.22"
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 mairie360_api_lib = "3.0.0"
 percent-encoding = "2.3"
@@ -15,6 +18,8 @@ reqwest = { version = "0.13.4", features = ["json", "form"] }
 rust-s3 = { version = "0.38.0", default-features = false, features = ["tokio-rustls-tls"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+# Dynamic SQL of the backup sealing (MAIR-500), same version and features as mairie360_api_lib.
+sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "json"] }
 tokio = { version = "1.46.0", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
@@ -26,6 +31,8 @@ yaml_serde = "0.10.7"
 mairie360_api_lib = { version = "3.0.0", features = ["test-utils"] }
 jsonwebtoken = "11"
 serial_test = "4.0.0"
+# A throwaway Postgres for the backup sealing tests (MAIR-500), same version as mairie360_api_lib.
+testcontainers = "0.28.0"
 url = "2.5"
 wiremock = "0.6.5"
 
