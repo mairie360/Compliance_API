@@ -151,8 +151,8 @@ services:
     #   container; send every imported request to the API service instead.
     # -c rules.tsv: informational alerts are set to IGNORE; any other alert (WARN/FAIL) makes
     #   zap-api-scan.py exit != 0, which fails the job (no -I).
-    # -z replacer: injects a static HS256 JWT (sub=1, the Admin seeded by liquibase, role=admin,
-    #   exp=2100, signed with JWT_SECRET=b"secret") on every request, so the authenticated routes
+    # -z replacer: injects a static HS256 service JWT (sub=zap-scan, role=service, exp=2100, signed
+    #   with JWT_SECRET=b"secret"; only services call this API, MAIR-498) on every request, so the routes
     #   are scanned instead of answering 401.
     # --hook zap_hooks.py: OpenAPI coverage gate (mairie360/CICD tests/zap). After the scan it maps
     #   every request ZAP sent to an operation of the spec and exits 1 when an operation was never
@@ -174,4 +174,4 @@ services:
       - --hook
       - /zap/wrk/zap_hooks.py
       - -z
-      - "-silent -config replacer.full_list(0).description=auth -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Authorization -config replacer.full_list(0).regex=false -config replacer.full_list(0).replacement='Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwiZXhwIjo0MTAyNDQ0ODAwfQ.xCeBe_2QxRlXW8WXr3t6F69wbEHA93HbP_7l4OTJwjA'"
+      - "-silent -config replacer.full_list(0).description=auth -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Authorization -config replacer.full_list(0).regex=false -config replacer.full_list(0).replacement='Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ6YXAtc2NhbiIsInJvbGUiOiJzZXJ2aWNlIiwiZXhwIjo0MTAyNDQ0ODAwfQ.RqrSxraljpbUiU6ZABESaXsMoPVolPpy1QvXoZJPJCs'" # gitleaks:allow (test-only token of the throwaway stack secret)
