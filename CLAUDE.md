@@ -163,3 +163,18 @@ a comment saying why it does not apply and when to drop it: no bare ignore, and 
 ## Pull request reviewers
 
 Every PR requests a review from the whole team, minus its author: `CarolinHugo`, `LAURETbenjamin`, `MathTek` and `Quentintnrl` (`gh pr create … --reviewer CarolinHugo,LAURETbenjamin,MathTek`). `.github/CODEOWNERS` makes GitHub request them automatically as well.
+
+## Service authentication and the database scan (MAIR-498)
+
+- Only other services of the instance call this API: every handler under `/api` takes a
+  `ServiceCaller` (`src/auth.rs`): HS256 JWT signed with `JWT_SECRET`, `role: service`, `sub` = the
+  calling service; no account lookup (the agents' `JwtMiddleware` is not mounted). Reversible
+  default until mTLS or a dedicated secret is decided. The test stacks use a static service token
+  signed with their throwaway secret (`load-test.js`, `docker-compose-security.yml`).
+- `src/store/`: `ComplianceStore` (trait, faked in tests) and `PgStore` (as the `compliance_api`
+  role of Devops/Database: no read on personal tables, only `fn_compliance_scan()`, the journal and
+  the erasure steps).
+- `src/scan/`: `run_database_scan` journals each finding (counts and locations, never a value) in
+  `compliance_journal`; `POST /api/v1/scans` runs it now, `main.rs` every `SCAN_INTERVAL_SECONDS`
+  (6 h by default, `0` disables it). Needs a Database image with `mair-498-01` (Database #173):
+  bump `TEST_DB_VERSION` and the compose images once it is published.

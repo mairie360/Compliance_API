@@ -688,6 +688,7 @@ name = "compliance_api"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "async-trait",
  "jsonwebtoken",
  "mairie360_api_lib",
  "percent-encoding",
