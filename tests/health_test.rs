@@ -3,12 +3,26 @@ use std::time::Instant;
 use actix_web::{http::StatusCode, test, web, App};
 use compliance_api::endpoints::health::{self, wait_for_postgres, DEPENDENCY_TIMEOUT};
 use mairie360_api_lib::state::AppState;
+use mairie360_api_lib::test_setup::db_setup::start_postgres_container;
 use mairie360_api_lib::test_setup::queries_setup::get_shared_db;
 use mairie360_api_lib::test_setup::redis_setup::start_redis_container;
 
-/// Nothing listens on port 1: both connections are refused right away.
-const UNREACHABLE_PG: &str = "postgres://postgres:postgres@127.0.0.1:1/postgres";
+/// Nothing listens on port 1: the connection is refused right away.
 const UNREACHABLE_REDIS: &str = "redis://127.0.0.1:1";
+
+/// An `AppState` whose Postgres is gone. Since lib 3.0.0 `AppState::new` panics when Postgres does
+/// not answer, so the state is built on a dedicated database that is stopped afterwards (the
+/// shared one is used by the other tests).
+async fn state_without_postgres() -> AppState {
+    let (postgres, db) = start_postgres_container().await;
+    let pg_url = format!(
+        "postgres://postgres:postgres@{}:{}/postgres",
+        db.host, db.port
+    );
+    let state = AppState::new(UNREACHABLE_REDIS.to_owned(), pg_url).await;
+    postgres.stop().await.expect("stop the Postgres container");
+    state
+}
 
 async fn get(state: AppState, uri: &str) -> (StatusCode, String) {
     let app = test::init_service(
@@ -38,7 +52,7 @@ async fn ready_answers_200_when_postgres_and_redis_answer() {
 
 #[actix_web::test]
 async fn ready_answers_503_naming_every_unreachable_dependency() {
-    let state = AppState::new(UNREACHABLE_REDIS.to_owned(), UNREACHABLE_PG.to_owned()).await;
+    let state = state_without_postgres().await;
 
     let started = Instant::now();
     let answer = get(state, "/ready").await;
@@ -70,7 +84,7 @@ async fn ready_names_only_the_unreachable_dependency() {
 
 #[actix_web::test]
 async fn health_answers_200_even_without_dependencies() {
-    let state = AppState::new(UNREACHABLE_REDIS.to_owned(), UNREACHABLE_PG.to_owned()).await;
+    let state = state_without_postgres().await;
 
     assert_eq!(
         get(state, "/health").await,
@@ -88,7 +102,7 @@ async fn startup_check_passes_once_postgres_answers() {
 
 #[actix_web::test]
 async fn startup_check_gives_up_after_its_attempts() {
-    let state = AppState::new(UNREACHABLE_REDIS.to_owned(), UNREACHABLE_PG.to_owned()).await;
+    let state = state_without_postgres().await;
 
     let started = Instant::now();
     assert!(!wait_for_postgres(&state, 2, std::time::Duration::from_millis(10)).await);
