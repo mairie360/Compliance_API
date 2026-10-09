@@ -57,6 +57,9 @@ async fn run(args: &[String]) -> Result<String, String> {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // The subcommand and its paths, never `argv[0]` nor a credential: `seal` targets the
+    // password-less throwaway copy and `unseal` takes `env` (URL read from the environment).
+    // nosemgrep: rust.lang.security.args.args
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args).await {
         Ok(summary) => {
