@@ -8,6 +8,7 @@
 )]
 
 pub mod auth;
+pub mod backup;
 pub mod database;
 pub mod endpoints;
 pub mod erasure;

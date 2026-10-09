@@ -197,7 +197,8 @@ Connectors (`src/erasure/connectors/`, env vars, all optional):
 - S3: `S3_ENDPOINT`, `S3_REGION`, `S3_ERASURE_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
   `S3_ERASURE_PREFIX` (`users/{user_id}/`).
 - Redis: `REDIS_ERASURE_URL`, `REDIS_ERASURE_PATTERNS` (comma-separated, `{user_id}` replaced).
-- Backup key: not configured until MAIR-500.
+- Backup key (MAIR-500): `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_REGION`, `KEY_MANAGER_URL`
+  (tests); destroys the user's key in Scaleway Key Manager (`backup::keys`), see below.
 Tests fake the store and the connectors; Keycloak and Resend are tested against `wiremock`.
 
 ## Log masking patterns and Redis key scan (MAIR-498)
@@ -212,3 +213,30 @@ look-around, no back-reference), the collector runs Go regexes.
 prefix (before the first `:`) and journals `redis_no_ttl` / `redis_long_ttl` (TTL above
 `REDIS_LONG_TTL_SECONDS`, 30 days by default): counts per prefix, never a key or a value. It runs
 with the database scan (`run_scans`), from `POST /api/v1/scans` and the background loop.
+
+## Backups encrypted with a key per user (MAIR-500)
+
+Crypto-shredding of the backups: the live database stays in clear; `src/backup/` and the second
+binary `compliance-backup` (`/app/compliance-backup` in the image) seal a **throwaway copy** of it
+before the backup Job of Devops/Deploiment hands it to restic.
+- `plan.rs`: what is sealed, from the inventory (`gdpr/inventory.yaml` of Devops/Database): a table
+  whose user column is erased by deletion moves the user's rows whole into the blob (unless another
+  table references it: a restore would fail on the foreign key, only its columns are sealed then);
+  otherwise the personal columns the erasure clears (`anonymize` / `delete`, identifiers kept),
+  plus `users_audit_log.previous_data` / `new_data` (`ALSO_SEALED`: MAIR-289 hashes them at
+  erasure). The user of a row is its `user_id`, else its first identifier column.
+- `seal.rs`: per user, in one transaction with triggers off (`session_replication_role = replica`,
+  superuser on the copy only), reads those values, encrypts them (AES-256-GCM, `crypto.rs`, aad =
+  the user id) with a fresh data key of the user wrapped by the user's key in the key manager
+  (`keys.rs`, envelope encryption: only the wrapped data key is in the backup), writes
+  `users/<id>.json`, and replaces them in the copy by placeholders (`NULL`, `'sealed'`,
+  `sealed-<id>@sealed.invalid` for an e-mail, `{}` for JSON). `unseal` puts back, in a restored
+  database, every user whose key still answers; a destroyed key (erased user, 404) leaves the user
+  sealed, i.e. restored anonymized. Nothing in a backup is ever modified.
+- `keys.rs`: `KeyManager` trait; `ScalewayKeyManager` (REST `key-manager/v1alpha1`, one key
+  `mairie360-user-<id>` per user, `generate-data-key` / `decrypt` / `DELETE`; exact field names to
+  confirm on the first real run against Scaleway); `InMemoryKeyManager` for tests and local stacks.
+- `tests/backup_test.rs` (testcontainers `postgres:18-alpine`): the sealed copy holds none of the
+  marker values, no key is in the backup, a restore with every key gives the original back, and
+  after destroying one user's key the untouched backup restores that user anonymized.
+

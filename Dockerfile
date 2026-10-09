@@ -32,6 +32,8 @@ RUN touch src/main.rs src/lib.rs && cargo build --release --locked
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 WORKDIR /app
 COPY --from=builder /usr/src/app/target/release/compliance_api /app/compliance-api
+# Backup sealing tool (MAIR-500), run by the backup Job of Devops/Deploiment.
+COPY --from=builder /usr/src/app/target/release/compliance_backup /app/compliance-backup
 
 USER 65532:65532
 CMD ["/app/compliance-api"]
