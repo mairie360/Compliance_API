@@ -46,8 +46,10 @@ async fn main() -> std::io::Result<()> {
     let db_name = get_critical_env_var("DB_NAME");
     let pg_url = build_pg_url(&db_user, &db_password, &db_host, &db_port, &db_name);
     let state = AppState::new(redis_url, pg_url).await;
-    // The lib keeps going without a pool when Postgres is unreachable: refuse to start instead, so
-    // the pod restarts (with backoff) rather than staying up and answering 500 to every request.
+    // `AppState::new` already panics when Postgres stays unreachable for DB_CONNECT_TIMEOUT seconds
+    // (lib 3.0, MAIR-423). This second check goes through the pool and refuses to start on a database
+    // that connects but does not answer, so the pod restarts (with backoff) rather than staying up
+    // and answering 500 to every request.
     if !wait_for_postgres(&state, STARTUP_DB_ATTEMPTS, STARTUP_DB_RETRY_DELAY).await {
         tracing::error!("Postgres did not answer at startup, exiting");
         return Err(std::io::Error::other("Postgres unreachable at startup"));
