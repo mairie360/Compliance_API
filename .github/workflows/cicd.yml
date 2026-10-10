@@ -14,14 +14,15 @@ permissions:
 
 jobs:
   APIs-cicd:
-    uses: mairie360/CICD/.github/workflows/APIs_cicd.yml@v4.2.0
+    # [NOUVEAU] MAIR-493 : TEMPORAIRE, test de mairie360/CICD#142. Repasser `uses` et `cicd_version` sur le tag publie avant merge.
+    uses: mairie360/CICD/.github/workflows/APIs_cicd.yml@mair-493-actions-by-check-and-stack
     permissions:
       contents: write
       packages: write
       id-token: write
     with:
       package_name: template-api # change api name
-      cicd_version: v4.2.0
+      cicd_version: mair-493-actions-by-check-and-stack
     # Only the secrets the reusable workflow declares, instead of `secrets: inherit`.
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
