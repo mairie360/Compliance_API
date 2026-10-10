@@ -53,10 +53,20 @@ pub async fn health() -> impl Responder {
 )]
 #[get("/ready")]
 pub async fn ready(state: web::Data<AppState>) -> impl Responder {
-    let postgres = postgres_answers(&state);
-    let redis =
-        within_timeout(async { state.get_redis().key_exist(REDIS_PROBE_KEY).await.is_ok() });
-    let (postgres, redis) = tokio::join!(postgres, redis);
+    readiness(postgres_probe(&state), redis_probe(&state)).await
+}
+
+/// Runs the two dependency checks concurrently, each bounded by [`DEPENDENCY_TIMEOUT`], and answers
+/// `200 ready` or `503 not ready: <unreachable dependencies>`.
+///
+/// The checks are passed in rather than read from an [`AppState`] so that "a dependency is down" can be
+/// tested: since `mairie360_api_lib` 3.0 (MAIR-423) `AppState::new` panics when Postgres is
+/// unreachable, so a state with a dead database cannot be built any more.
+pub async fn readiness(
+    postgres: impl Future<Output = bool>,
+    redis: impl Future<Output = bool>,
+) -> HttpResponse {
+    let (postgres, redis) = tokio::join!(within_timeout(postgres), within_timeout(redis));
 
     let down: Vec<&str> = [("postgres", postgres), ("redis", redis)]
         .into_iter()
@@ -69,26 +79,42 @@ pub async fn ready(state: web::Data<AppState>) -> impl Responder {
     }
 }
 
+/// `SELECT 1` on Postgres, unbounded: [`readiness`] and [`postgres_answers`] bound it.
+async fn postgres_probe(state: &AppState) -> bool {
+    state
+        .get_smart_db()
+        .fetch_scalar::<i32, _>(&PingQueryView)
+        .await
+        .is_ok()
+}
+
+/// One read on Redis, unbounded: [`readiness`] bounds it.
+async fn redis_probe(state: &AppState) -> bool {
+    state.get_redis().key_exist(REDIS_PROBE_KEY).await.is_ok()
+}
+
 /// `SELECT 1` on Postgres, bounded by [`DEPENDENCY_TIMEOUT`].
 pub async fn postgres_answers(state: &AppState) -> bool {
-    within_timeout(async {
-        state
-            .get_smart_db()
-            .fetch_scalar::<i32, _>(&PingQueryView)
-            .await
-            .is_ok()
-    })
-    .await
+    within_timeout(postgres_probe(state)).await
 }
 
 /// Startup check: tries [`postgres_answers`] up to `attempts` times, `delay` apart, and says whether
 /// Postgres ever answered. `main.rs` refuses to start when it does not, instead of serving `500`s.
 pub async fn wait_for_postgres(state: &AppState, attempts: u32, delay: Duration) -> bool {
+    retry_until("Postgres", attempts, delay, || postgres_answers(state)).await
+}
+
+/// Calls `check` up to `attempts` times, `delay` apart, and says whether it ever answered `true`.
+pub async fn retry_until<F, Fut>(what: &str, attempts: u32, delay: Duration, mut check: F) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = bool>,
+{
     for attempt in 1..=attempts {
-        if postgres_answers(state).await {
+        if check().await {
             return true;
         }
-        tracing::warn!(attempt, attempts, "Postgres does not answer yet");
+        tracing::warn!(attempt, attempts, "{what} does not answer yet");
         if attempt < attempts {
             tokio::time::sleep(delay).await;
         }
