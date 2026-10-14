@@ -690,17 +690,12 @@ dependencies = [
  "actix-web",
  "jsonwebtoken",
  "mairie360_api_lib",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
  "percent-encoding",
  "serde",
  "serde_json",
  "serial_test",
  "tokio",
  "tracing",
- "tracing-actix-web",
- "tracing-opentelemetry",
  "tracing-subscriber",
  "url",
  "utoipa",
@@ -2307,9 +2302,9 @@ dependencies = [
 
 [[package]]
 name = "mairie360_api_lib"
-version = "3.0.1"
+version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99fa448356931c7b92c34aae6049cec070269d072e7560ebb13d88a5cc7b9878"
+checksum = "4c7a1ab9281a5ef01c0d51380852bc0267c3ac3a29456594a76f300fbc1904ab"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -2321,6 +2316,9 @@ dependencies = [
  "governor",
  "jsonwebtoken",
  "libc",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
  "percent-encoding",
  "redis",
  "regex",
@@ -2328,12 +2326,15 @@ dependencies = [
  "resend-rs",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "testcontainers",
  "thiserror",
  "tokio",
  "tokio-postgres",
  "tracing",
+ "tracing-actix-web",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
 ]

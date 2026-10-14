@@ -1,37 +1,33 @@
-//! OpenTelemetry tracing (MAIR-503): each request yields a root span carrying the route and the
-//! status, continues an incoming `traceparent`, carries the SQL it ran as span events, and leaves
-//! without the client address nor the query string, in the spans as in the logs.
-
-use std::io::Write;
-use std::sync::{Arc, Mutex};
+//! OpenTelemetry tracing (MAIR-503, `mairie360_api_lib::logging::telemetry`): each request of
+//! this API yields a root span carrying the route and the status, continues an incoming
+//! `traceparent`, carries the SQL it ran as span events, and leaves without the client address
+//! nor the query string. The redaction of the logs and spans themselves is tested in the lib.
 
 use actix_web::test::TestRequest;
-use actix_web::{middleware, web, App, HttpResponse};
+use actix_web::{web, App};
 use compliance_api::endpoints::health;
-use compliance_api::telemetry::{log_layer, trace_layer, tracer_provider};
-use mairie360_api_lib::state::AppState;
-use mairie360_api_lib::test_setup::queries_setup::get_shared_db;
-use opentelemetry::global;
-use opentelemetry::Value;
-use opentelemetry_sdk::propagation::TraceContextPropagator;
-use opentelemetry_sdk::trace::{
+use mairie360_api_lib::logging::telemetry::opentelemetry::{global, Value};
+use mairie360_api_lib::logging::telemetry::opentelemetry_sdk::propagation::TraceContextPropagator;
+use mairie360_api_lib::logging::telemetry::opentelemetry_sdk::trace::{
     InMemorySpanExporter, SdkTracerProvider, SimpleSpanProcessor, SpanData,
 };
+use mairie360_api_lib::logging::telemetry::{trace_layer, tracer_provider, TracingLogger};
+use mairie360_api_lib::security::JwtMiddleware;
+use mairie360_api_lib::state::AppState;
+use mairie360_api_lib::test_setup::queries_setup::get_shared_db;
 use serial_test::serial;
 use tracing::subscriber::DefaultGuard;
-use tracing_actix_web::TracingLogger;
-use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 
 /// Nothing listens on port 1: the readiness probe reports Redis down right away.
 const UNREACHABLE_REDIS: &str = "redis://127.0.0.1:1";
 
-/// Provider exporting to memory through the redaction of `telemetry`, and the subscriber feeding
+/// Provider exporting to memory through the redaction of the lib, and the subscriber feeding
 /// it, installed for the current thread.
 fn in_memory_tracing() -> (InMemorySpanExporter, SdkTracerProvider, DefaultGuard) {
     global::set_text_map_propagator(TraceContextPropagator::new());
     let exporter = InMemorySpanExporter::default();
-    let provider = tracer_provider(SimpleSpanProcessor::new(exporter.clone()));
+    let provider = tracer_provider(SimpleSpanProcessor::new(exporter.clone()), "compliance-api");
     let guard = tracing::subscriber::set_default(
         tracing_subscriber::registry().with(trace_layer(&provider)),
     );
@@ -107,86 +103,39 @@ async fn a_request_is_exported_as_a_span_with_its_sql() {
     );
 }
 
-/// Collects the logs of [`log_layer`].
-#[derive(Clone, Default)]
-struct Captured(Arc<Mutex<Vec<u8>>>);
-
-impl Write for Captured {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'writer> MakeWriter<'writer> for Captured {
-    type Writer = Self;
-
-    fn make_writer(&'writer self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-#[actix_web::get("/api/v1/scans")]
-async fn logging_handler() -> HttpResponse {
-    tracing::error!("the handler logs an error");
-    HttpResponse::Ok().finish()
-}
-
-/// No database: the logs and spans of a request carrying personal data in its query string and
-/// client address, mounted like `main.rs` (`Logger`, then `TracingLogger`).
+/// Mounted like `main.rs` (`TracingLogger` around the `/api` scope and its `JwtMiddleware`): a
+/// request the gate refuses before any handler runs still gets its span, with its status.
 #[actix_web::test]
 #[serial]
-async fn neither_logs_nor_spans_carry_the_query_string_or_the_client_address() {
-    global::set_text_map_propagator(TraceContextPropagator::new());
-    let exporter = InMemorySpanExporter::default();
-    let provider = tracer_provider(SimpleSpanProcessor::new(exporter.clone()));
-    let logs = Captured::default();
-    let _guard = tracing::subscriber::set_default(
-        tracing_subscriber::registry()
-            .with(log_layer(logs.clone()))
-            .with(trace_layer(&provider)),
-    );
+async fn a_refused_request_still_gets_its_span() {
+    let (exporter, provider, _guard) = in_memory_tracing();
+    let (_container, pg_url) = get_shared_db().await;
+    let state = AppState::new(UNREACHABLE_REDIS.to_string(), pg_url.clone()).await;
     let app = actix_web::test::init_service(
         App::new()
-            .wrap(middleware::Logger::default())
             .wrap(TracingLogger::default())
-            .service(logging_handler),
+            .app_data(web::Data::new(state))
+            .service(
+                web::scope("/api")
+                    .wrap(JwtMiddleware)
+                    .configure(compliance_api::endpoints::config),
+            ),
+    )
+    .await;
+    exporter.reset();
+
+    // No JWT: `JwtMiddleware` refuses before the handler runs.
+    let _ = actix_web::test::try_call_service(
+        &app,
+        TestRequest::get().uri("/api/v1/scans/").to_request(),
     )
     .await;
 
-    let request = TestRequest::get()
-        .uri("/api/v1/scans?search=Dupont")
-        .insert_header(("x-forwarded-for", "203.0.113.7"))
-        .to_request();
-    drop(actix_web::test::call_service(&app, request).await);
     provider.force_flush().expect("flush the spans");
-
-    let logs = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
-    let event = logs
-        .lines()
-        .find(|line| line.contains("the handler logs an error"))
-        .unwrap_or_else(|| panic!("the handler's event must be logged: {logs}"));
-    assert!(
-        !event.contains("Dupont"),
-        "query string in the logs: {event}"
-    );
-    assert!(
-        !event.contains("203.0.113.7"),
-        "client address in the logs: {event}"
-    );
-
-    let spans = format!("{:?}", exporter.get_finished_spans().unwrap());
-    assert!(spans.contains("the handler logs an error"), "{spans}");
-    assert!(
-        !spans.contains("Dupont"),
-        "query string in the spans: {spans}"
-    );
-    assert!(
-        !spans.contains("203.0.113.7"),
-        "client address in the spans: {spans}"
-    );
+    let spans = exporter.get_finished_spans().unwrap();
+    let span = spans
+        .iter()
+        .find(|span| span.name.starts_with("GET"))
+        .unwrap_or_else(|| panic!("no span for the refused request: {spans:#?}"));
+    assert_eq!(attribute(span, "http.status_code"), Some(&Value::I64(401)));
 }
