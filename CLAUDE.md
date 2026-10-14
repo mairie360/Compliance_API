@@ -124,9 +124,9 @@ mounted routes and catches it.
   `endpoints::db_error::classify_db_error("<resource>/<op>", &e)` and map each `DbFailure` (`NotFound`, `Conflict`,
   `InvalidReference`, `Internal`) to a variant of the handler's error enum. Never `.map_err(|_| ...)`: the
   helper logs the cause, `Internal` at `error` (MAIR-421).
-- Logs go through `tracing` (`tracing_subscriber` set up first thing in `main.rs`, level from `RUST_LOG`,
-  default `info`), which also carries actix's request log. No `println!` / `eprintln!` in new code. Responses carry
-  `X-Content-Type-Options: nosniff` (`DefaultHeaders` in `main.rs`).
+- Logs go through `tracing` (installed first thing in `main.rs` by the lib's `init_telemetry`, see "Logs and
+  observability" below), which also carries actix's request log. No `println!` / `eprintln!` in new code.
+  Responses carry `X-Content-Type-Options: nosniff` (`DefaultHeaders` in `main.rs`).
 - Ids: path and body ids are `u64` in the API and `INT4` in Postgres. Convert with the lib's `id_to_sql` /
   `id_from_sql` (or `i32::try_from` answering `400`), never `as i32`: `2^32 + 1` would wrap to `1` and alias
   another row (MAIR-422). `lib.rs` and `main.rs` deny `clippy::cast_possible_truncation`, `cast_possible_wrap`
@@ -143,6 +143,29 @@ mounted routes and catches it.
   transaction (MAIR-420): `let mut tx = state.get_smart_db().begin().await?;`, the queries on `tx`, then
   `tx.commit().await?`. An early `?` drops `tx` and rolls back what already ran; never compensate by hand with a
   `DELETE` whose error is ignored. A single CTE statement is fine too. `tests/transaction_test.rs` is the example.
+
+## Logs and observability (MAIR-503)
+
+Logs and traces come from `mairie360_api_lib::logging::telemetry` (feature `otel`), shared by every API: `main.rs`
+only calls `init_telemetry("compliance-api")` and keeps the guard. There is no local telemetry module; read the lib
+for the details.
+
+- Logs on stdout in the format of every API: coloured text (`RUST_LOG`, default `info`), one JSON object per line
+  with `LOG_FORMAT=json`. The request root span is hidden from them (it holds the client address and query string).
+- Traces over OTLP/HTTP, opt-in: nothing is exported unless `OTEL_EXPORTER_OTLP_ENDPOINT` (or
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) is set, `OTEL_SDK_DISABLED=true` forces it off, a failing exporter is
+  logged and never stops the API. The endpoint is an agent relaying to Scaleway Cockpit (OTel Collector or Grafana
+  Alloy, e.g. `http://alloy:4318`); `OTEL_SERVICE_NAME` defaults to `compliance-api`.
+- `main.rs` wraps the app in the lib's `TracingLogger`, inside the request log (`middleware::Logger`, kept), so
+  requests refused by `JwtMiddleware` get a span too. Root spans are named `<METHOD> <route pattern>` and continue
+  an incoming `traceparent`. The SQL appears as span **events** (`db.statement` with `$n` placeholders, never the
+  values). The lib's `Redact` drops `http.client_ip` and the query string before export (MAIR-290, MAIR-501): build
+  test providers with `telemetry::tracer_provider`, never `SdkTracerProvider::builder()`.
+- Never add `opentelemetry*` / `tracing-actix-web` to `Cargo.toml`: use the lib's re-exports, its versions are
+  coupled. `tracing-subscriber` is a dev-dependency only, for the test subscriber.
+- `tests/telemetry_test.rs` asserts the span of `/ready` (status, route, continued trace id, no query string nor
+  client address, SQL event) and of a `401` refused by `JwtMiddleware`; the redaction of logs and spans is tested
+  in the lib.
 
 ## CI and Renovate
 
