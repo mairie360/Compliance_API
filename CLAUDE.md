@@ -20,6 +20,16 @@ via `mairie360_api_lib::test_setup::queries_setup::get_shared_db`), `cargo cov_t
 gate, only `main.rs` and `lib.rs` excluded: handlers and validation count, test them), `cargo open_api`
 (OpenAPI JSON on stdout).
 
+Integration tests run the API's code as its own Postgres role, like in staging (MAIR-556):
+`get_shared_db()` is the **superuser** URL, for fixtures only (seeding, creating a probe table and granting
+it, see `tests/transaction_test.rs`); every `AppState` / query view under test connects with
+`get_shared_db_as("compliance_api")` (`API_ROLE` in each test file). A query outside the grants of
+Devops/Database's `api_grants.sql` then fails the test with `permission denied` (SQLSTATE `42501`): add the
+grant there, never connect the code under test as the superuser. `tests/queries/db_role.rs` guards it. The
+compose stacks connect the API as `compliance_api` too (`-Dcompliance_api_password` passed to Liquibase);
+postgres, liquibase and the seeder keep the superuser. `TEST_DB_VERSION` in `.cargo/config.toml` and the
+compose image tags must be a Database build that has the `compliance_api` role (`dev-949384c` or later).
+
 Access denials are tested, not assumed (MAIR-419): `tests/auth_gate_test.rs` checks the JWT gate in front of
 `/api` (no token, forged, expired, malformed, unknown or archived account, percent-encoded path). The lib answers
 `401` for a bad token and `404` for a well-signed token naming an unknown or archived account. Every new endpoint
