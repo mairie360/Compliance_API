@@ -2,16 +2,19 @@
 // then `commit()`. Dropping the transaction (an early `?` return) or a failing query rolls back every
 // query already run, so a crash or an error between two writes never leaves half of them applied.
 // These tests are the worked example new APIs copy; they use a probe table of their own so they
-// depend on no business table of the schema.
+// depend on no business table of the schema. The probe table is a fixture: the superuser creates it
+// and grants it to the API role, which runs the transactions under test, like in staging (MAIR-556).
 
 use mairie360_api_lib::database::db_interface::{ApiRequestDto, QueryParam};
 use mairie360_api_lib::error::ApiLibError;
 use mairie360_api_lib::smart_db::SmartDatabase;
 use mairie360_api_lib::state::AppState;
-use mairie360_api_lib::test_setup::queries_setup::get_shared_db;
+use mairie360_api_lib::test_setup::queries_setup::{get_shared_db, get_shared_db_as};
 use serde::Deserialize;
 use serial_test::serial;
 
+/// The Postgres role the API connects with in staging (MAIR-556).
+const API_ROLE: &str = "compliance_api"; // change api name
 /// Nothing listens on port 1: these writes declare no cache key, so Redis is never used.
 const UNREACHABLE_REDIS: &str = "redis://127.0.0.1:1";
 
@@ -21,6 +24,21 @@ struct CreateProbeTable;
 impl ApiRequestDto for CreateProbeTable {
     fn query_sql(&self) -> &'static str {
         "CREATE TABLE IF NOT EXISTS template_transaction_probe (label TEXT PRIMARY KEY)"
+    }
+
+    fn query_params(&self) -> &[QueryParam] {
+        &[]
+    }
+}
+
+/// The API role has no `CREATE` on `public` and no grant on a table it does not own: the fixture
+/// gives it what the transactions under test need.
+#[derive(Deserialize)]
+struct GrantProbeTable;
+
+impl ApiRequestDto for GrantProbeTable {
+    fn query_sql(&self) -> &'static str {
+        "GRANT SELECT, INSERT ON template_transaction_probe TO compliance_api" // change api name
     }
 
     fn query_params(&self) -> &[QueryParam] {
@@ -74,15 +92,25 @@ impl ApiRequestDto for CountProbes {
     }
 }
 
+/// Creates the probe table as the superuser, then hands back the state the code under test uses,
+/// connected as the API role.
 async fn state() -> AppState {
-    let (_, pg_url) = get_shared_db().await;
-    let state = AppState::new(UNREACHABLE_REDIS.to_owned(), pg_url.clone()).await;
-    state
-        .get_smart_db()
+    let (_, superuser_url) = get_shared_db().await;
+    let fixtures = AppState::new(UNREACHABLE_REDIS.to_owned(), superuser_url.clone()).await;
+    let fixtures_db = fixtures.get_smart_db();
+    fixtures_db
         .execute(CreateProbeTable)
         .await
         .expect("probe table");
-    state
+    fixtures_db
+        .execute(GrantProbeTable)
+        .await
+        .expect("probe table grant");
+    AppState::new(
+        UNREACHABLE_REDIS.to_owned(),
+        get_shared_db_as(API_ROLE).await,
+    )
+    .await
 }
 
 async fn count(db: &SmartDatabase, prefix: &str) -> i64 {

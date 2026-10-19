@@ -11,16 +11,18 @@ x-common-env: &common-env
   REDIS_URL: redis://redis:6379
   DB_TYPE: postgres
   DB_NAME: mairie_360_database
-  DB_USER: postgres
+  # The API connects with its own role, like in staging/prod (MAIR-556): a query its grants do not
+  # cover fails here. The superuser stays for postgres, liquibase and the seeder.
+  DB_USER: compliance_api # change api name
   DB_HOST: postgres
-  DB_PASSWORD: password
+  DB_PASSWORD: compliance-api-password # change api name
   DB_PORT: 5432
   # Serves Swagger UI and /api-docs/openapi.json: dev and test stacks only, never production.
   API_DOCS_ENABLED: "true"
 
 services:
   postgres:
-    image: ghcr.io/mairie360/database:dev-fb7c223
+    image: ghcr.io/mairie360/database:dev-949384c
     restart: always
     container_name: mairie360-db-template-api # change api name
     environment:
@@ -40,7 +42,7 @@ services:
       retries: 5
 
   liquibase:
-    image: ghcr.io/mairie360/liquibase-migrations:dev-fb7c223
+    image: ghcr.io/mairie360/liquibase-migrations:dev-949384c
     container_name: mairie360-liquibase-template-api # change api name
     depends_on:
       postgres:
@@ -57,6 +59,7 @@ services:
       --changelog-file=changelog.xml
       update
       -Dallow_template_admin=true
+      -Dcompliance_api_password=compliance-api-password
     networks:
       - backend
 
