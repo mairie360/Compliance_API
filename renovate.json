@@ -18,6 +18,13 @@
       ],
       "automerge": true,
       "ignoreTests": true
+    },
+    {
+      "description": "cicd.yml, promote-staging.yml and promote-prod.yml pin the same CICD release: bump them in one PR (MAIR-494).",
+      "matchPackageNames": [
+        "mairie360/CICD"
+      ],
+      "groupName": "mairie360/CICD"
     }
   ],
   "lockFileMaintenance": {
@@ -27,7 +34,7 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^\\.github/workflows/cicd\\.yml$/"
+        "/^\\.github/workflows/(cicd|promote-staging|promote-prod)\\.yml$/"
       ],
       "matchStrings": [
         "cicd_version:\\s*(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
