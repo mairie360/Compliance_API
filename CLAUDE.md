@@ -155,3 +155,11 @@ a comment saying why it does not apply and when to drop it: no bare ignore, and 
 ## Pull request reviewers
 
 Every PR requests a review from the whole team, minus its author: `CarolinHugo`, `LAURETbenjamin`, `MathTek` and `Quentintnrl` (`gh pr create … --reviewer CarolinHugo,LAURETbenjamin,MathTek`). `.github/CODEOWNERS` makes GitHub request them automatically as well.
+
+## Promotion to staging and prod (MAIR-494)
+
+A push to `main` only releases dev (`cicd.yml` stops at `release-dev`). Staging and prod are manual:
+`gh workflow run promote-staging.yml -R mairie360/Compliance_API [-f sha=<sha>]`, then `promote-prod.yml`
+(environments `Staging` / `Prod`). Staging refuses a commit without `dev-<sha>` and a green main run, and runs
+the integration, ZAP and k6 stacks on that image; prod refuses one without `staging-<sha>` and tags the version semantic-release computes
+for that commit. `cicd.yml`, `promote-staging.yml` and `promote-prod.yml` pin the same mairie360/CICD release.

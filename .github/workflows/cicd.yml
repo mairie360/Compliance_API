@@ -14,14 +14,14 @@ permissions:
 
 jobs:
   APIs-cicd:
-    uses: mairie360/CICD/.github/workflows/APIs_cicd.yml@v4.3.1
+    uses: mairie360/CICD/.github/workflows/APIs_cicd.yml@v4.4.0
     permissions:
       contents: write
       packages: write
       id-token: write
     with:
       package_name: template-api # change api name
-      cicd_version: v4.3.1
+      cicd_version: v4.4.0
     # Only the secrets the reusable workflow declares, instead of `secrets: inherit`.
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
