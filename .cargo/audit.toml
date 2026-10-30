@@ -11,4 +11,11 @@ ignore = [
     # (`HttpServer::bind`, no TLS, no h2c), so no HTTP/2 frame is ever parsed. Drop it once actix-http
     # moves to h2 0.4.
     "RUSTSEC-2026-0258",
+    # zip 8 (build-dependency of utoipa-swagger-ui 10, which requires zip ^8.6), unconfined
+    # permissions, symlinks and SUID bits on extraction (fixed in zip >= 9.0.0). zip only runs in
+    # utoipa-swagger-ui's build script, extracting the Swagger UI archive it ships, never an
+    # archive from a user, and is not in the binary. Drop these once utoipa-swagger-ui moves to zip 9.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]
