@@ -38,7 +38,7 @@ struct GrantProbeTable;
 
 impl ApiRequestDto for GrantProbeTable {
     fn query_sql(&self) -> &'static str {
-        "GRANT SELECT, INSERT ON template_transaction_probe TO compliance_api"
+        "GRANT SELECT, INSERT ON compliance_transaction_probe TO compliance_api"
     }
 
     fn query_params(&self) -> &[QueryParam] {
