@@ -186,5 +186,5 @@ Every PR requests a review from the whole team, minus its author: `CarolinHugo`,
   the erasure steps).
 - `src/scan/`: `run_database_scan` journals each finding (counts and locations, never a value) in
   `compliance_journal`; `POST /api/v1/scans` runs it now, `main.rs` every `SCAN_INTERVAL_SECONDS`
-  (6 h by default, `0` disables it). Needs a Database image with `mair-498-01` (Database #173):
-  bump `TEST_DB_VERSION` and the compose images once it is published.
+  (6 h by default, `0` disables it). Needs a Database image with `mair-498-01` (Database #173,
+  on Database main since `dev-76437e3`, the tag of `TEST_DB_VERSION` and the compose images).
