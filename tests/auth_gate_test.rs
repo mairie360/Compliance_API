@@ -14,13 +14,17 @@ use jsonwebtoken::{encode, EncodingKey, Header};
 use mairie360_api_lib::jwt_manager::Claims;
 use mairie360_api_lib::security::{AuthenticatedUser, JwtMiddleware};
 use mairie360_api_lib::state::AppState;
-use mairie360_api_lib::test_setup::queries_setup::{get_shared_db, ADMIN_ID, BOB_ID};
+use mairie360_api_lib::test_setup::queries_setup::{
+    get_shared_db, get_shared_db_as, ADMIN_ID, BOB_ID,
+};
 use serial_test::serial;
 
 /// Secret of the tokens the gate accepts in these tests.
 const SECRET: &str = "auth-gate-test-secret-of-at-least-32-bytes";
 /// Nothing listens on port 1: no token checked here carries a session id, so Redis is never read.
 const UNREACHABLE_REDIS: &str = "redis://127.0.0.1:1";
+/// The Postgres role the API connects with in staging (MAIR-556): the gate runs under its grants.
+const API_ROLE: &str = "compliance_api";
 /// No account has this id in the seeded test database.
 const UNKNOWN_USER_ID: i32 = 999_999;
 
@@ -63,8 +67,8 @@ async fn whoami(user: AuthenticatedUser) -> HttpResponse {
 
 async fn call(path: &str, bearer: Option<&str>) -> (StatusCode, String) {
     set_jwt_env();
-    let (_, pg_url) = get_shared_db().await;
-    let state = AppState::new(UNREACHABLE_REDIS.to_owned(), pg_url.clone()).await;
+    let pg_url = get_shared_db_as(API_ROLE).await;
+    let state = AppState::new(UNREACHABLE_REDIS.to_owned(), pg_url).await;
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(state))
