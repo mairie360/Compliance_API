@@ -164,6 +164,9 @@ pub trait ComplianceStore: Send + Sync {
     async fn scan(&self) -> Result<Vec<Finding>, StoreError>;
     /// Appends to `compliance_journal`.
     async fn journal(&self, entry: &JournalEntry) -> Result<(), StoreError>;
+    /// Appends every entry to `compliance_journal` in one transaction: all of them or none, so a
+    /// retried scan never journals the same finding twice (MAIR-420).
+    async fn journal_all(&self, entries: &[JournalEntry]) -> Result<(), StoreError>;
     /// Whether the account exists (archived or anonymized ones included).
     async fn user_exists(&self, user_id: i32) -> Result<bool, StoreError>;
     /// `fn_erasure_targets(user_id)`.
