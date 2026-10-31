@@ -132,6 +132,16 @@ impl ComplianceStore for PgStore {
             .map_err(err)
     }
 
+    async fn journal_all(&self, entries: &[JournalEntry]) -> Result<(), StoreError> {
+        let mut tx = self.db.begin().await.map_err(err)?;
+        for entry in entries {
+            tx.execute(&JournalInsertView::new(entry))
+                .await
+                .map_err(err)?;
+        }
+        tx.commit().await.map_err(err)
+    }
+
     async fn user_exists(&self, user_id: i32) -> Result<bool, StoreError> {
         self.db
             .fetch_scalar::<bool, _>(&UserExistsView {

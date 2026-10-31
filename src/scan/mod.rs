@@ -12,12 +12,12 @@ pub const DEFAULT_SCAN_INTERVAL_SECONDS: u64 = 6 * 3600;
 /// # Errors
 ///
 /// The store's error when the scan cannot run; a failed journal write is returned too, so that a
-/// finding is never silently lost.
+/// finding is never silently lost. The findings of one scan are journaled in one transaction: a
+/// failure leaves none of them, so the retry does not journal the first ones twice.
 pub async fn run_database_scan(store: &dyn ComplianceStore) -> Result<Vec<Finding>, StoreError> {
     let findings = store.scan().await?;
-    for finding in &findings {
-        store.journal(&JournalEntry::finding(finding)).await?;
-    }
+    let entries: Vec<JournalEntry> = findings.iter().map(JournalEntry::finding).collect();
+    store.journal_all(&entries).await?;
     tracing::info!(findings = findings.len(), "database compliance scan done");
     Ok(findings)
 }
@@ -46,6 +46,8 @@ pub mod tests {
     pub struct FakeStore {
         pub findings: Vec<Finding>,
         pub journal: Mutex<Vec<JournalEntry>>,
+        /// Index of the entry whose write fails in `journal_all`, if any.
+        pub fail_journal_at: Option<usize>,
     }
 
     #[async_trait]
@@ -56,6 +58,15 @@ pub mod tests {
 
         async fn journal(&self, entry: &JournalEntry) -> Result<(), StoreError> {
             self.journal.lock().unwrap().push(entry.clone());
+            Ok(())
+        }
+
+        // Like the transaction of PgStore: the batch fails as a whole when one entry is refused.
+        async fn journal_all(&self, entries: &[JournalEntry]) -> Result<(), StoreError> {
+            if self.fail_journal_at.is_some_and(|n| n < entries.len()) {
+                return Err(StoreError("journal write refused".into()));
+            }
+            self.journal.lock().unwrap().extend(entries.iter().cloned());
             Ok(())
         }
 
@@ -108,6 +119,25 @@ pub mod tests {
         assert_eq!(journal[0].action, Action::Detected);
         assert_eq!(journal[0].rows, Some(3));
         assert_eq!(journal[0].masked_excerpt, None);
+    }
+
+    // Review of #5: a scan whose journal write fails leaves no entry behind, so its retry does not
+    // journal the first findings twice.
+    #[actix_web::test]
+    async fn a_failed_journal_write_journals_no_finding_of_the_scan() {
+        let finding = |location: &str| Finding {
+            kind: "retention_overdue".into(),
+            location: location.into(),
+            rows: 1,
+            detail: String::new(),
+        };
+        let store = FakeStore {
+            findings: vec![finding("sessions"), finding("connection_logs")],
+            fail_journal_at: Some(1),
+            ..FakeStore::default()
+        };
+        assert!(run_database_scan(&store).await.is_err());
+        assert!(store.journal.lock().unwrap().is_empty());
     }
 
     #[test]
