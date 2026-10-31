@@ -19,12 +19,12 @@ import { createCoverage, loadSpec } from '/coverage.js';
 
 const BASE_URL = (__ENV.BASE_URL || 'http://localhost:3004').replace(/\/+$/, '');
 
-// Static HS256 JWT (sub=1, the Admin seeded by liquibase, role=admin, exp=2100, signed with the
-// stack's JWT_SECRET=b"secret"), the same one ZAP injects. Sent on every request so the `jwt`
-// operations under /api are exercised authenticated; public routes ignore it.
+// Static HS256 service JWT (sub=zap-scan, role=service, exp=2100, signed with the stack's
+// throwaway JWT_SECRET=b"secret"), the same one ZAP injects: only services call this API
+// (MAIR-498, src/auth.rs). Public routes ignore it.
 const TOKEN =
   __ENV.JWT ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwiZXhwIjo0MTAyNDQ0ODAwfQ.xCeBe_2QxRlXW8WXr3t6F69wbEHA93HbP_7l4OTJwjA';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ6YXAtc2NhbiIsInJvbGUiOiJzZXJ2aWNlIiwiZXhwIjo0MTAyNDQ0ODAwfQ.RqrSxraljpbUiU6ZABESaXsMoPVolPpy1QvXoZJPJCs'; // gitleaks:allow (test-only token of the throwaway stack secret)
 const AUTH = { Authorization: `Bearer ${TOKEN}` };
 
 // p(95) latency budget of each family of operations, in ms (reference machine).
@@ -71,7 +71,9 @@ const readHandlers = {
   'GET /ready': ({ request }) => check(request(), { 'ready 200': (r) => r.status === 200 }),
 };
 
-const writeHandlers = {};
+const writeHandlers = {
+  'POST /api/v1/scans': ({ request }) => check(request(), { 'scan 200': (r) => r.status === 200 }),
+};
 
 const reads = createCoverage(readHandlers, {
   spec: specSubset(spec, (method) => READ_METHODS.includes(method)),
