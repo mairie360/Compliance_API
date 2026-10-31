@@ -69,10 +69,15 @@ const spec = loadSpec();
 const readHandlers = {
   'GET /health': ({ request }) => check(request(), { 'health 200': (r) => r.status === 200 }),
   'GET /ready': ({ request }) => check(request(), { 'ready 200': (r) => r.status === 200 }),
+  'GET /api/v1/erasures/{userId}': ({ request }) =>
+    check(request({ path: { userId: 2 } }), { 'erasure read': (r) => r.status === 200 || r.status === 404 }),
 };
 
 const writeHandlers = {
   'POST /api/v1/scans': ({ request }) => check(request(), { 'scan 200': (r) => r.status === 200 }),
+  // The seeded account 2: erased once, the next calls only read its finished steps (202).
+  'POST /api/v1/erasures/{userId}': ({ request }) =>
+    check(request({ path: { userId: 2 } }), { 'erasure 202': (r) => r.status === 202 }),
 };
 
 const reads = createCoverage(readHandlers, {
