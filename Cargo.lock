@@ -745,6 +745,7 @@ dependencies = [
  "mairie360_api_lib",
  "percent-encoding",
  "redis",
+ "regex",
  "reqwest 0.13.5",
  "rust-s3",
  "serde",
@@ -757,6 +758,7 @@ dependencies = [
  "utoipa",
  "utoipa-swagger-ui",
  "wiremock",
+ "yaml_serde",
 ]
 
 [[package]]
