@@ -1,28 +1,18 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>mairie360/renovate-config"
+    "github>mairie360/renovate-config",
+    "helpers:pinGitHubActionDigests"
   ],
-  "automerge": true,
-  "automergeType": "pr",
-  "platformAutomerge": false,
-  "ignoreTests": true,
-  "minimumReleaseAge": null,
-  "dependencyDashboardApproval": false,
-  "prCreation": "immediate",
   "packageRules": [
     {
-      "description": "TEMPLATE UNIQUEMENT : tout est automergé (majeures, 0.x, Dockerfile de prod), même si la CI échoue. À remplacer dans une vraie API (voir README, étape 3)",
+      "description": "The reusable workflow is referenced twice in cicd.yml (`uses:` pinned by commit, and the `cicd_version` input): bump both in one PR (MAIR-427).",
       "matchPackageNames": [
-        "*"
+        "mairie360/CICD"
       ],
-      "automerge": true,
-      "ignoreTests": true
+      "groupName": "mairie360/CICD"
     }
   ],
-  "lockFileMaintenance": {
-    "automerge": true
-  },
   "customManagers": [
     {
       "customType": "regex",

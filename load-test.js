@@ -17,7 +17,7 @@ import http from 'k6/http';
 import { check, fail, sleep } from 'k6';
 import { createCoverage, loadSpec } from '/coverage.js';
 
-const BASE_URL = (__ENV.BASE_URL || 'http://localhost:3000').replace(/\/+$/, ''); // change port
+const BASE_URL = (__ENV.BASE_URL || 'http://localhost:3004').replace(/\/+$/, '');
 
 // Static HS256 JWT (sub=1, the Admin seeded by liquibase, role=admin, exp=2100, signed with the
 // stack's JWT_SECRET=b"secret"), the same one ZAP injects. Sent on every request so the `jwt`

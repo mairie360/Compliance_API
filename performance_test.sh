@@ -4,15 +4,15 @@
 # `k6-perf-test` service is the exit code of this script: a crossed threshold fails CI.
 #
 # The API under test is the image named by IMAGE_REF. CI sets it to the published
-# ghcr.io/mairie360/template-api:dev-<sha> image (the one promoted to staging and prod); when it is # change api name
-# empty (local usage) the image is built from development.Dockerfile as template-api:local.
+# ghcr.io/mairie360/compliance-api:dev-<sha> image (the one promoted to staging and prod); when it is
+# empty (local usage) the image is built from development.Dockerfile as compliance-api:local.
 
 COMPOSE_FILE="docker-compose-performance.yml"
 SERVICE_NAME="k6-perf-test"
 
 if [ -z "${IMAGE_REF:-}" ]; then
-    echo "==> [0/4] IMAGE_REF is empty: building template-api:local from development.Dockerfile..."
-    IMAGE_REF="template-api:local" # change api name
+    echo "==> [0/4] IMAGE_REF is empty: building compliance-api:local from development.Dockerfile..."
+    IMAGE_REF="compliance-api:local"
     docker build -f development.Dockerfile -t "$IMAGE_REF" . || exit 1
 fi
 export IMAGE_REF

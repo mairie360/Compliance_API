@@ -1,14 +1,14 @@
 use std::time::Instant;
 
 use actix_web::{http::StatusCode, test, web, App};
-use api_template::endpoints::health::{self, wait_for_postgres, DEPENDENCY_TIMEOUT}; // change api name
+use compliance_api::endpoints::health::{self, wait_for_postgres, DEPENDENCY_TIMEOUT};
 use mairie360_api_lib::state::AppState;
 use mairie360_api_lib::test_setup::db_setup::start_postgres_container;
 use mairie360_api_lib::test_setup::queries_setup::get_shared_db_as;
 use mairie360_api_lib::test_setup::redis_setup::start_redis_container;
 
 /// The Postgres role the API connects with in staging (MAIR-556): `/ready` runs under its grants.
-const API_ROLE: &str = "compliance_api"; // change api name
+const API_ROLE: &str = "compliance_api";
 /// Nothing listens on port 1: the connection is refused right away.
 const UNREACHABLE_REDIS: &str = "redis://127.0.0.1:1";
 

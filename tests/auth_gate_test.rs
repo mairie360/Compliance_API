@@ -24,7 +24,7 @@ const SECRET: &str = "auth-gate-test-secret-of-at-least-32-bytes";
 /// Nothing listens on port 1: no token checked here carries a session id, so Redis is never read.
 const UNREACHABLE_REDIS: &str = "redis://127.0.0.1:1";
 /// The Postgres role the API connects with in staging (MAIR-556): the gate runs under its grants.
-const API_ROLE: &str = "compliance_api"; // change api name
+const API_ROLE: &str = "compliance_api";
 /// No account has this id in the seeded test database.
 const UNKNOWN_USER_ID: i32 = 999_999;
 

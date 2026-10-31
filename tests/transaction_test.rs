@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serial_test::serial;
 
 /// The Postgres role the API connects with in staging (MAIR-556).
-const API_ROLE: &str = "compliance_api"; // change api name
+const API_ROLE: &str = "compliance_api";
 /// Nothing listens on port 1: these writes declare no cache key, so Redis is never used.
 const UNREACHABLE_REDIS: &str = "redis://127.0.0.1:1";
 
@@ -23,7 +23,7 @@ struct CreateProbeTable;
 
 impl ApiRequestDto for CreateProbeTable {
     fn query_sql(&self) -> &'static str {
-        "CREATE TABLE IF NOT EXISTS template_transaction_probe (label TEXT PRIMARY KEY)"
+        "CREATE TABLE IF NOT EXISTS compliance_transaction_probe (label TEXT PRIMARY KEY)"
     }
 
     fn query_params(&self) -> &[QueryParam] {
@@ -38,7 +38,7 @@ struct GrantProbeTable;
 
 impl ApiRequestDto for GrantProbeTable {
     fn query_sql(&self) -> &'static str {
-        "GRANT SELECT, INSERT ON template_transaction_probe TO compliance_api" // change api name
+        "GRANT SELECT, INSERT ON compliance_transaction_probe TO compliance_api"
     }
 
     fn query_params(&self) -> &[QueryParam] {
@@ -61,7 +61,7 @@ impl InsertProbe {
 
 impl ApiRequestDto for InsertProbe {
     fn query_sql(&self) -> &'static str {
-        "INSERT INTO template_transaction_probe (label) VALUES ($1)"
+        "INSERT INTO compliance_transaction_probe (label) VALUES ($1)"
     }
 
     fn query_params(&self) -> &[QueryParam] {
@@ -84,7 +84,7 @@ impl CountProbes {
 
 impl ApiRequestDto for CountProbes {
     fn query_sql(&self) -> &'static str {
-        "SELECT count(*) FROM template_transaction_probe WHERE label LIKE $1"
+        "SELECT count(*) FROM compliance_transaction_probe WHERE label LIKE $1"
     }
 
     fn query_params(&self) -> &[QueryParam] {
