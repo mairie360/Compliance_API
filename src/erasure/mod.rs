@@ -167,6 +167,10 @@ mod tests {
             self.journal.lock().unwrap().push(entry.clone());
             Ok(())
         }
+        async fn journal_all(&self, entries: &[JournalEntry]) -> Result<(), StoreError> {
+            self.journal.lock().unwrap().extend(entries.iter().cloned());
+            Ok(())
+        }
         async fn user_exists(&self, user_id: i32) -> Result<bool, StoreError> {
             Ok(user_id == 42)
         }
