@@ -1,6 +1,9 @@
 # Images are pinned by digest (Renovate bumps tag and digest together): a re-pushed tag cannot
 # change what gets built.
-FROM rust:1.99-slim-bookworm@sha256:2c3a22f0a5533ea2dd5a16627bc841228151faa2d4de2644ac9987e4a2f1f2fa AS builder
+# Builder, runtime and development.Dockerfile share one Debian release (13 "trixie"), so the
+# binary links against the glibc and OpenSSL the runtime image ships (MAIR-741: Debian 12's
+# distroless libssl3 is unpatched).
+FROM rust:1.99-slim-trixie@sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
@@ -29,7 +32,7 @@ RUN touch src/main.rs src/lib.rs && cargo build --release --locked
 # Kubernetes can enforce `runAsNonRoot: true`. The API binds an unprivileged
 # port (`PORT`, 3000+) and never writes to the filesystem. The binary stays
 # owned by root (read + execute only for the runtime user).
-FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1
 WORKDIR /app
 COPY --from=builder /usr/src/app/target/release/compliance_api /app/compliance-api
 # Backup sealing tool (MAIR-500), run by the backup Job of Devops/Deploiment.

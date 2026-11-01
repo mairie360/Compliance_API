@@ -58,12 +58,19 @@ fn from_lines(file: &str) -> Vec<String> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
     let content = std::fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("cannot read {}: {err}", path.display()));
-    content
+    // Docker accepts any whitespace (spaces or tabs) between `FROM` and the image.
+    let lines: Vec<String> = content
         .lines()
         .map(str::trim)
-        .filter(|line| line.to_ascii_uppercase().starts_with("FROM "))
+        .filter(|line| {
+            line.split_whitespace()
+                .next()
+                .is_some_and(|instruction| instruction.eq_ignore_ascii_case("FROM"))
+        })
         .map(str::to_owned)
-        .collect()
+        .collect();
+    assert!(!lines.is_empty(), "{file} has no FROM instruction");
+    lines
 }
 
 /// MAIR-396: a re-pushed tag must not change the image, so every base image carries a digest, and
@@ -97,5 +104,34 @@ fn release_build_is_locked() {
     assert!(!builds.is_empty(), "the Dockerfile must build the API");
     for build in builds {
         assert!(build.contains("--locked"), "`{build}` must pass `--locked`");
+    }
+}
+
+/// MAIR-741: the release binary is linked in the builder stage against its glibc and OpenSSL, then
+/// run on the distroless runtime image, so builder, runtime and development images share one
+/// Debian release; Debian 12's distroless `libssl3` is unpatched (CVE-2026-84782).
+#[test]
+fn mair_741_every_image_runs_on_debian_13() {
+    let releases = [
+        ("bookworm", 12),
+        ("debian12", 12),
+        ("trixie", 13),
+        ("debian13", 13),
+    ];
+    for file in ["Dockerfile", "development.Dockerfile"] {
+        for from in from_lines(file) {
+            let image = from.split_whitespace().nth(1).unwrap_or_default();
+            let release = releases
+                .iter()
+                .find(|(marker, _)| image.contains(marker))
+                .map_or_else(
+                    || panic!("{file}: cannot tell the Debian release of `{from}`"),
+                    |(_, release)| *release,
+                );
+            assert_eq!(
+                release, 13,
+                "{file}: `{image}` must be on Debian 13, like the distroless runtime image"
+            );
+        }
     }
 }
