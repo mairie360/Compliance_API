@@ -20,6 +20,19 @@ fi
 export IMAGE_REF
 echo "==> API image under test: $IMAGE_REF"
 
+# Fresh Ed25519 key pair for this run: the API gets its public key, the runners tokens signed with
+# it like Core signs them (MAIR-428, MAIR-680, test_secrets.sh).
+# shellcheck source=test_secrets.sh
+source "$(dirname "$0")/test_secrets.sh" || exit 1
+# The collection's callers (the Postman sandbox cannot sign EdDSA): a service (role service, only
+# services call this API, MAIR-498), the plain agent 2 (init-test.sql, must be refused), a service
+# token claiming Core's kid but signed with another key, and an expired one.
+JWT_SERVICE="$(sign_jwt core-api service 3600)" || exit 1
+JWT_AGENT="$(sign_jwt 2 user 3600)" || exit 1
+JWT_FORGED="$(sign_jwt core-api service 3600 "$(openssl genpkey -algorithm ed25519 2>/dev/null)")" || exit 1
+JWT_EXPIRED="$(sign_jwt core-api service -3600)" || exit 1
+export JWT_SERVICE JWT_AGENT JWT_FORGED JWT_EXPIRED
+
 echo "==> [1/4] Starting the stack and the newman collection..."
 docker compose -f "$COMPOSE_FILE" up -d
 

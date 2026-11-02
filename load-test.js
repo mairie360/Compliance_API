@@ -19,12 +19,12 @@ import { createCoverage, loadSpec } from '/coverage.js';
 
 const BASE_URL = (__ENV.BASE_URL || 'http://localhost:3004').replace(/\/+$/, '');
 
-// Static HS256 service JWT (sub=zap-scan, role=service, exp=2100, signed with the stack's
-// throwaway JWT_SECRET=b"secret"), the same one ZAP injects: only services call this API
-// (MAIR-498, src/auth.rs). Public routes ignore it.
-const TOKEN =
-  __ENV.JWT ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ6YXAtc2NhbiIsInJvbGUiOiJzZXJ2aWNlIiwiZXhwIjo0MTAyNDQ0ODAwfQ.RqrSxraljpbUiU6ZABESaXsMoPVolPpy1QvXoZJPJCs'; // gitleaks:allow (test-only token of the throwaway stack secret)
+// Service JWT of the run (sub=zap-scan, role=service, 2 hours), signed by performance_test.sh with
+// the run's Ed25519 key like Core signs it (test_secrets.sh, MAIR-680) and passed as `JWT`: only
+// services call this API (MAIR-498, src/auth.rs), and k6 cannot sign Ed25519. No token is
+// committed. Public routes ignore it.
+if (!__ENV.JWT) throw new Error('Set JWT (the service token signed by performance_test.sh)');
+const TOKEN = __ENV.JWT;
 const AUTH = { Authorization: `Bearer ${TOKEN}` };
 
 // p(95) latency budget of each family of operations, in ms (reference machine).

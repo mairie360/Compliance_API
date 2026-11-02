@@ -16,7 +16,7 @@ use mairie360_api_lib::state::AppState;
                    without TTL or with a TTL above `REDIS_LONG_TTL_SECONDS` (by prefix), writes each \
                    finding to the compliance journal and returns them: counts and locations, never a \
                    value. Service token only \
-                   (HS256 JWT signed with the instance's `JWT_SECRET`, `role: service`).",
+                   (`role: service`, EdDSA JWT signed with Core's key, MAIR-680).",
     responses(
         (status = 200, description = "Findings of the scan (possibly empty).", body = [Finding]),
         (status = 401, description = "Missing, invalid or non-service token.", body = String, content_type = "text/plain"),

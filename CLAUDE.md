@@ -60,9 +60,12 @@ End-to-end harnesses (what CI runs on `main` after the dev release; each spins u
 standalone compose file, so env/image changes must be mirrored in all of them): `./integration_test.sh`
 (`docker-compose-integration.yml`, newman replaying `tests/postman/collection.json` with
 `tests/postman/environment.json`), `./security_test.sh` (ZAP), `./performance_test.sh` (k6). The
-collection is a Postman v2.1 export; its pre-request script forges HS256 JWTs with the stack's
-`JWT_SECRET` (`jwt_admin` for the seeded Admin, `jwt_agent` for user 2 from `init-test.sql`, plus a
-wrong-secret and an expired token), so a new API only adds requests for its endpoints. `baseUrl` is
+collection is a Postman v2.1 export. The Postman sandbox cannot sign EdDSA (MAIR-680), so
+`integration_test.sh` signs the tokens with the run's key (`test_secrets.sh`) and the compose file passes them
+with `--env-var`: `jwt_service` (role `service`), `jwt_agent` (user 2 from `init-test.sql`, refused: not a
+service), `jwt_forged` (Core's `kid`, another key) and `jwt_expired`; the pre-request script only forges
+`jwt_hs256`, an HS256 service token that must be refused. The `Auth` folder checks the service-token gate on
+`GET /api/v1/masking-patterns` (no database). `baseUrl` is
 overridden with `--env-var` by the compose file; the committed default targets `localhost:3004`.
 
 In those three stacks the API service is `image: ${IMAGE_REF}` (no `build:` block): CI sets `IMAGE_REF` to the
@@ -72,8 +75,9 @@ published `ghcr.io/mairie360/<name>:dev-<sha>` image, and the scripts build `com
 stack sets `API_DOCS_ENABLED=true` (shared `x-common-env` anchor): without it the API serves neither Swagger UI nor
 `/api-docs/openapi.json`, which newman, ZAP and k6 read.
 
-The ZAP scan is authenticated and blocking: `security-scan` waits for the `seeder`, injects a static admin JWT
-(`sub=1`, signed with `JWT_SECRET=b"secret"`, see the comment in `docker-compose-security.yml`) on every request
+The ZAP scan is authenticated and blocking: `security-scan` waits for the `seeder`, injects the run's service JWT
+(`SERVICE_JWT`, `sub=zap-scan`, `role=service`, signed by `security_test.sh`, see the comment in
+`docker-compose-security.yml`) on every request
 and fails on any alert not set to `IGNORE` / `OUTOFSCOPE` in `.zap/rules.tsv` (no `-I`; the file is the same in
 every API). `-O http://<service>:<port>` is required, the spec's `servers` being unreachable from the ZAP
 container. ZAP fuzzes every field from the spec examples, so an example that does not deserialize or a `500`
@@ -89,10 +93,20 @@ never reached, or when an operation requiring `jwt` only got 401/403. The auth r
 `endpoints/swagger.rs::SecurityAddon` declares the `jwt` bearer scheme (the name every API uses) at the top level
 and marks every operation outside `/api/` public (`security: []`), mirroring `main.rs`.
 
-`mairie360_api_lib` (2.0+) refuses to start with a missing, short (< 32 bytes) or well-known `JWT_SECRET`
-(MAIR-428). The four compose stacks keep the public test value `b"secret"` (the static ZAP / k6 admin token and the
-Postman script sign with it) and set `JWT_ALLOW_WEAK_SECRET: "true"` next to it: without it the API panics at
-startup and every stack fails. A deployment never sets that variable and gets its own random secret.
+**Session and service tokens (MAIR-680).** Only Core_API signs them, with its Ed25519 key (`EdDSA`, `kid` =
+RFC 7638 thumbprint, `iss` `mairie360-core`, `aud` `mairie360`). This API only gets `JWT_PUBLIC_KEY` (Core's public
+key as PEM, several `PUBLIC KEY` blocks during a rotation, `\n`-escaped line breaks accepted) and checks them with
+the lib's `decode_jwt` (4.3.0). No `JWT_SECRET`: while it is set the lib still accepts HS256 tokens signed with it
+(transition), so a deployment removes it once `JWT_PUBLIC_KEY` is in place, and every HS256 token is then refused.
+
+Every `*_test.sh` sources `test_secrets.sh` (MAIR-428, MAIR-680): a fresh Ed25519 key pair per run (an exported
+`JWT_PRIVATE_KEY` + `JWT_PUBLIC_KEY` pair wins), the public key exported for the API, and
+`sign_jwt <sub> <role> <ttl> [key]` to sign tokens like Core with the private key, which never reaches the API.
+`security_test.sh` / `performance_test.sh` sign `SERVICE_JWT` (`sub=zap-scan`, `role=service`) for ZAP and k6
+(`JWT`). The compose files require them (`${VAR:?}`). **No key or token valid anywhere is committed.** The dev
+stack defaults `JWT_PUBLIC_KEY` to the lib's test public key with `JWT_ALLOW_WEAK_SECRET=true` (dev only); sign a
+dev service token in a subshell with the lib's test key:
+`(export JWT_PRIVATE_KEY="$(openssl pkey -inform DER -in ~/.cargo/registry/src/*/mairie360_api_lib-4.3.0/src/test_setup/fixtures/session_test_key.der)"; export JWT_PUBLIC_KEY="$(printf '%s\n' "$JWT_PRIVATE_KEY" | openssl pkey -pubout)"; source ./test_secrets.sh && sign_jwt core-api service 3600)`.
 
 `load-test.js` is built on `coverage.js`: one handler per operation (`"METHOD /path"`), k6 aborts at init
 otherwise; the spec it reads is the one served by the image under test, saved into the `openapi-spec` volume by
@@ -177,10 +191,12 @@ Every PR requests a review from the whole team, minus its author: `CarolinHugo`,
 ## Service authentication and the database scan (MAIR-498)
 
 - Only other services of the instance call this API: every handler under `/api` takes a
-  `ServiceCaller` (`src/auth.rs`): HS256 JWT signed with `JWT_SECRET`, `role: service`, `sub` = the
-  calling service; no account lookup (the agents' `JwtMiddleware` is not mounted). Reversible
-  default until mTLS or a dedicated secret is decided. The test stacks use a static service token
-  signed with their throwaway secret (`load-test.js`, `docker-compose-security.yml`).
+  `ServiceCaller` (`src/auth.rs`): a JWT signed by Core_API (EdDSA, checked against
+  `JWT_PUBLIC_KEY` by the lib's `decode_jwt`, MAIR-680), `role: service`, `sub` = the calling
+  service; no account lookup (the agents' `JwtMiddleware` is not mounted). A caller therefore needs
+  a service token issued by Core. Reversible default until mTLS or a dedicated credential is
+  decided. `tests/mair_680_service_token.rs` checks the gate (EdDSA accepted, HS256 / another key /
+  agent role refused); the test stacks sign their service token per run (`test_secrets.sh`).
 - `src/store/`: `ComplianceStore` (trait, faked in tests) and `PgStore` (as the `compliance_api`
   role of Devops/Database: no read on personal tables, only `fn_compliance_scan()`, the journal and
   the erasure steps).
