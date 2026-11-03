@@ -111,12 +111,11 @@ services:
     environment:
       <<: *common-env
       PUBLIC_URL: http://compliance.development.mairie360.fr
-      # Public test value, known to every reader of this repo: mairie360_api_lib refuses to start
-      # with it unless JWT_ALLOW_WEAK_SECRET is set. Dev/test stacks only, never a deployment, where
-      # JWT_SECRET is a random value of at least 32 bytes, distinct per instance (MAIR-428).
-      JWT_SECRET: b"secret"
+      # MAIR-680: Core's public key only, no JWT_SECRET, so every HS256 token is refused. Fresh key
+      # pair per run from the matching *_test.sh script (test_secrets.sh), which also signs the
+      # runners' tokens with it: no key or token is committed.
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?JWT_PUBLIC_KEY must be set, run the matching *_test.sh script}
       JWT_TIMEOUT: 3600
-      JWT_ALLOW_WEAK_SECRET: "true"
     depends_on:
       liquibase:
         condition: service_completed_successfully
@@ -160,6 +159,8 @@ services:
     environment:
       - BASE_URL=http://compliance:3004
       - OPENAPI_SPEC=/spec/openapi.json
+      # Service token of the run (role=service), signed by performance_test.sh like Core (MAIR-680).
+      - JWT=${SERVICE_JWT:?SERVICE_JWT must be set, run ./performance_test.sh}
     depends_on:
       compliance-ready:
         condition: service_completed_successfully

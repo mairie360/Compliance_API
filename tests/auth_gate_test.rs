@@ -6,21 +6,21 @@
 // endpoints, the denials specific to that endpoint: non-admin on an admin route, another user
 // reading / modifying / deleting a resource, an id in the body that differs from the id in the URL.
 
-use std::sync::Once;
-use std::time::{SystemTime, UNIX_EPOCH};
+#[allow(dead_code)]
+mod session_tokens;
 
 use actix_web::{get, http::StatusCode, test, web, App, HttpResponse};
-use jsonwebtoken::{encode, EncodingKey, Header};
-use mairie360_api_lib::jwt_manager::Claims;
 use mairie360_api_lib::security::{AuthenticatedUser, JwtMiddleware};
 use mairie360_api_lib::state::AppState;
 use mairie360_api_lib::test_setup::queries_setup::{
     get_shared_db, get_shared_db_as, ADMIN_ID, BOB_ID,
 };
 use serial_test::serial;
+use session_tokens::{
+    core_claims, core_token, hs256_token, now, other_private_key, set_jwt_env, sign_eddsa_with,
+    sign_like_core,
+};
 
-/// Secret of the tokens the gate accepts in these tests.
-const SECRET: &str = "auth-gate-test-secret-of-at-least-32-bytes";
 /// Nothing listens on port 1: no token checked here carries a session id, so Redis is never read.
 const UNREACHABLE_REDIS: &str = "redis://127.0.0.1:1";
 /// The Postgres role the API connects with in staging (MAIR-556): the gate runs under its grants.
@@ -28,35 +28,8 @@ const API_ROLE: &str = "compliance_api";
 /// No account has this id in the seeded test database.
 const UNKNOWN_USER_ID: i32 = 999_999;
 
-static ENV: Once = Once::new();
-
-fn set_jwt_env() {
-    ENV.call_once(|| {
-        std::env::set_var("JWT_SECRET", SECRET);
-        std::env::set_var("JWT_TIMEOUT", "3600");
-    });
-}
-
-fn now() -> usize {
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock after the epoch")
-        .as_secs();
-    usize::try_from(seconds).expect("timestamp fits in usize")
-}
-
-/// HS256 token for `user_id`, signed with `secret`, expiring at `exp`.
-fn token(user_id: i32, secret: &str, exp: usize) -> String {
-    encode(
-        &Header::default(),
-        &Claims::new(&user_id.to_string(), "user", exp),
-        &EncodingKey::from_secret(secret.as_bytes()),
-    )
-    .expect("encodable token")
-}
-
 fn valid_token(user_id: i32) -> String {
-    token(user_id, SECRET, now() + 3600)
+    core_token(user_id)
 }
 
 /// Stands for any business endpoint: answers the id the gate authenticated.
@@ -117,11 +90,11 @@ async fn a_request_without_token_is_refused() {
 
 #[actix_web::test]
 #[serial]
-async fn a_token_signed_with_another_secret_is_refused() {
-    let forged = token(
-        admin_id().await,
-        "not-the-secret-but-just-as-long-!!",
-        now() + 3600,
+async fn a_token_signed_with_another_key_is_refused() {
+    // MAIR-680: what a compromised service could sign, claiming Core's `kid`.
+    let forged = sign_eddsa_with(
+        &core_claims(admin_id().await, now() + 3600),
+        &other_private_key(),
     );
     assert_eq!(
         call("/api/v1/whoami/", Some(&forged)).await.0,
@@ -132,9 +105,52 @@ async fn a_token_signed_with_another_secret_is_refused() {
 #[actix_web::test]
 #[serial]
 async fn an_expired_token_is_refused() {
-    let expired = token(admin_id().await, SECRET, now() - 3600);
+    let expired = sign_like_core(&core_claims(admin_id().await, now() - 3600));
     assert_eq!(
         call("/api/v1/whoami/", Some(&expired)).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[actix_web::test]
+#[serial]
+async fn mair_680_runs_with_core_public_key_only() {
+    set_jwt_env();
+    assert!(std::env::var_os("JWT_SECRET").is_none());
+    assert!(std::env::var_os("JWT_PRIVATE_KEY").is_none());
+    let admin = admin_id().await;
+    // An EdDSA token signed with Core's key reaches the endpoint as its user.
+    let (status, body) = call("/api/v1/whoami/", Some(&core_token(admin))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, admin.to_string());
+}
+
+#[actix_web::test]
+#[serial]
+async fn mair_680_an_hs256_token_is_refused_without_jwt_secret() {
+    let admin = admin_id().await;
+    // The secrets the stacks and tests used to share, and any other one: no JWT_SECRET here.
+    for secret in [
+        "auth-gate-test-secret-of-at-least-32-bytes",
+        "b\"secret\"",
+        "any-secret-of-a-compromised-service-0123456789",
+    ] {
+        let (status, body) = call("/api/v1/whoami/", Some(&hs256_token(admin, secret))).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{secret}");
+        assert_ne!(body, admin.to_string());
+    }
+}
+
+#[actix_web::test]
+#[serial]
+async fn mair_680_a_token_without_core_audience_is_refused() {
+    let admin = admin_id().await;
+    let claims =
+        mairie360_api_lib::jwt_manager::Claims::new(&admin.to_string(), "user", now() + 3600);
+    assert_eq!(
+        call("/api/v1/whoami/", Some(&sign_like_core(&claims)))
+            .await
+            .0,
         StatusCode::UNAUTHORIZED
     );
 }
