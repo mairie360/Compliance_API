@@ -1,16 +1,17 @@
 # Journal des releases — Compliance_API
 
-<!-- release-journal-state {"dev": "645bb5cb5ea4d006a9af4a9bec4a0718adf00cea", "prod": "", "prod_tag": "", "staging": "", "updated": {"dev": "2026-11-12 11:51 UTC"}} -->
+<!-- release-journal-state {"dev": "7c635f632188f7779fd80b5cd8081f7756584cb1", "prod": "", "prod_tag": "", "staging": "", "updated": {"dev": "2026-11-12 13:08 UTC"}} -->
 > Tenu à jour par la CI (`mairie360/CICD`, action `release/release-journal`) à chaque passage en dev, staging et prod. Ne pas modifier à la main : le fichier est réécrit au passage suivant.
 
 | Environnement | Version | Commit | Mis à jour |
 | --- | --- | --- | --- |
 | prod | — | — | — |
 | staging | — | — | — |
-| dev | — | `645bb5c` | 2026-11-12 11:51 UTC |
+| dev | — | `7c635f6` | 2026-11-12 13:08 UTC |
 
 ## Ajouté sur main depuis la dernière release prod (aucune release prod)
 
+- fix(deps): MAIR-816 Release dev: align internal versions and deploy (#30) ([#30](https://github.com/mairie360/Compliance_API/pull/30))
 - fix(deps): MAIR-741 APIs: move the runtime image to distroless Debian 13 (CVE-2026-84782) (#28) ([#28](https://github.com/mairie360/Compliance_API/pull/28))
 - fix(deps): MAIR-740 APIs: fix the cargo audit RustSec alerts (actix-http, libsqlite3-sys) (#26) ([#26](https://github.com/mairie360/Compliance_API/pull/26))
 - fix: MAIR-680 [Audit 23/10] Toutes les APIs et BFFs : remplacer le secret JWT HS256 partagé par 12 services (A1) ([#25](https://github.com/mairie360/Compliance_API/pull/25))
@@ -28,6 +29,7 @@
 
 ## Différence dev → staging (en dev, pas encore en staging)
 
+- fix(deps): MAIR-816 Release dev: align internal versions and deploy (#30) ([#30](https://github.com/mairie360/Compliance_API/pull/30))
 - fix(deps): MAIR-741 APIs: move the runtime image to distroless Debian 13 (CVE-2026-84782) (#28) ([#28](https://github.com/mairie360/Compliance_API/pull/28))
 - fix(deps): MAIR-740 APIs: fix the cargo audit RustSec alerts (actix-http, libsqlite3-sys) (#26) ([#26](https://github.com/mairie360/Compliance_API/pull/26))
 - fix: MAIR-680 [Audit 23/10] Toutes les APIs et BFFs : remplacer le secret JWT HS256 partagé par 12 services (A1) ([#25](https://github.com/mairie360/Compliance_API/pull/25))
@@ -54,6 +56,7 @@ _Rien._
 <!-- release-journal-history:start -->
 | Date | Environnement | Version | Commit | Run |
 | --- | --- | --- | --- | --- |
+| 2026-11-12 13:08 UTC | dev | — | `7c635f6` | [run](https://github.com/mairie360/Compliance_API/actions/runs/43222221211) |
 | 2026-11-12 11:51 UTC | dev | — | `645bb5c` | [run](https://github.com/mairie360/Compliance_API/actions/runs/43211700021) |
 | 2026-11-03 01:32 UTC | dev | — | `3a341d5` | [run](https://github.com/mairie360/Compliance_API/actions/runs/41559242197) |
 | 2026-11-02 23:05 UTC | dev | — | `e9b68a0` | [run](https://github.com/mairie360/Compliance_API/actions/runs/41540046610) |
