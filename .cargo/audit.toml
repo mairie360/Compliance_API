@@ -11,13 +11,6 @@ ignore = [
     # (`HttpServer::bind`, no TLS, no h2c), so no HTTP/2 frame is ever parsed. Drop it once actix-http
     # moves to h2 0.4.
     "RUSTSEC-2026-0258",
-    # zip 8 (build-dependency of utoipa-swagger-ui 10, which requires zip ^8.6), unconfined
-    # permissions, symlinks and SUID bits on extraction (fixed in zip >= 9.0.0). zip only runs in
-    # utoipa-swagger-ui's build script, extracting the Swagger UI archive it ships, never an
-    # archive from a user, and is not in the binary. Drop these once utoipa-swagger-ui moves to zip 9.
-    "RUSTSEC-2026-0367",
-    "RUSTSEC-2026-0368",
-    "RUSTSEC-2026-0369",
     # crypto-bigint 0.5 (timing variability of operations meant to be constant-time; fixed in
     # 0.7.6, which elliptic-curve 0.13 cannot use). Pulled by jsonwebtoken 11.1 (the latest
     # release, through p256/p384), used directly by `src/auth.rs` (HS256 only, no EC key) and via
@@ -26,4 +19,9 @@ ignore = [
     # 0.14, and remove it at once if code starts signing with (or otherwise using) an EC private
     # key.
     "RUSTSEC-2026-0387",
+    # libsqlite3-sys 0.37 (C SQLite CVE-2026-119375, fixed in >= 0.39), MAIR-740. It is only listed in
+    # Cargo.lock through sqlx's weak `sqlx-sqlite?/...` features: `cargo tree -i libsqlite3-sys
+    # --target all --all-features` prints nothing, it is never compiled into the binary. sqlx 0.9
+    # pins 0.37. Drop it once sqlx moves to libsqlite3-sys >= 0.39.
+    "RUSTSEC-2026-0459"
 ]
