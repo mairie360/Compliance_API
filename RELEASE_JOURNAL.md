@@ -1,16 +1,17 @@
 # Journal des releases — Compliance_API
 
-<!-- release-journal-state {"dev": "7c635f632188f7779fd80b5cd8081f7756584cb1", "prod": "", "prod_tag": "", "staging": "", "updated": {"dev": "2026-11-12 13:08 UTC"}} -->
+<!-- release-journal-state {"dev": "5d350dc7afb31d562ec7be85bcd45654fe17efa5", "prod": "", "prod_tag": "", "staging": "", "updated": {"dev": "2026-11-13 01:12 UTC"}} -->
 > Tenu à jour par la CI (`mairie360/CICD`, action `release/release-journal`) à chaque passage en dev, staging et prod. Ne pas modifier à la main : le fichier est réécrit au passage suivant.
 
 | Environnement | Version | Commit | Mis à jour |
 | --- | --- | --- | --- |
 | prod | — | — | — |
 | staging | — | — | — |
-| dev | — | `7c635f6` | 2026-11-12 13:08 UTC |
+| dev | — | `5d350dc` | 2026-11-13 01:12 UTC |
 
 ## Ajouté sur main depuis la dernière release prod (aucune release prod)
 
+- ci: MAIR-1003 Release prod: align internal versions and deploy ([#32](https://github.com/mairie360/Compliance_API/pull/32))
 - fix(deps): MAIR-816 Release dev: align internal versions and deploy (#30) ([#30](https://github.com/mairie360/Compliance_API/pull/30))
 - fix(deps): MAIR-741 APIs: move the runtime image to distroless Debian 13 (CVE-2026-84782) (#28) ([#28](https://github.com/mairie360/Compliance_API/pull/28))
 - fix(deps): MAIR-740 APIs: fix the cargo audit RustSec alerts (actix-http, libsqlite3-sys) (#26) ([#26](https://github.com/mairie360/Compliance_API/pull/26))
@@ -29,6 +30,7 @@
 
 ## Différence dev → staging (en dev, pas encore en staging)
 
+- ci: MAIR-1003 Release prod: align internal versions and deploy ([#32](https://github.com/mairie360/Compliance_API/pull/32))
 - fix(deps): MAIR-816 Release dev: align internal versions and deploy (#30) ([#30](https://github.com/mairie360/Compliance_API/pull/30))
 - fix(deps): MAIR-741 APIs: move the runtime image to distroless Debian 13 (CVE-2026-84782) (#28) ([#28](https://github.com/mairie360/Compliance_API/pull/28))
 - fix(deps): MAIR-740 APIs: fix the cargo audit RustSec alerts (actix-http, libsqlite3-sys) (#26) ([#26](https://github.com/mairie360/Compliance_API/pull/26))
@@ -56,6 +58,7 @@ _Rien._
 <!-- release-journal-history:start -->
 | Date | Environnement | Version | Commit | Run |
 | --- | --- | --- | --- | --- |
+| 2026-11-13 01:12 UTC | dev | — | `5d350dc` | [run](https://github.com/mairie360/Compliance_API/actions/runs/43341212453) |
 | 2026-11-12 13:08 UTC | dev | — | `7c635f6` | [run](https://github.com/mairie360/Compliance_API/actions/runs/43222221211) |
 | 2026-11-12 11:51 UTC | dev | — | `645bb5c` | [run](https://github.com/mairie360/Compliance_API/actions/runs/43211700021) |
 | 2026-11-03 01:32 UTC | dev | — | `3a341d5` | [run](https://github.com/mairie360/Compliance_API/actions/runs/41559242197) |
