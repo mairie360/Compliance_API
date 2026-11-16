@@ -47,8 +47,8 @@ it, see `tests/transaction_test.rs`); every `AppState` / query view under test c
 Devops/Database's `api_grants.sql` then fails the test with `permission denied` (SQLSTATE `42501`): add the
 grant there, never connect the code under test as the superuser. `tests/queries/db_role.rs` guards it. The
 compose stacks connect the API as `compliance_api` too (`-Dcompliance_api_password` passed to Liquibase);
-postgres, liquibase and the seeder keep the superuser. `TEST_DB_VERSION` in `.cargo/config.toml` and the
-compose image tags must be a Database build that has the `compliance_api` role (`dev-949384c` or later).
+postgres, liquibase and the seeder keep the superuser. `TEST_DB_VERSION` in `.cargo/config.toml` (`dev`) and the
+compose images (`${UPSTREAM_TAG:-dev}`, MAIR-998) follow the Database of the stage, which has the `compliance_api` role.
 
 Access denials are tested, not assumed (MAIR-419): `tests/auth_gate_test.rs` checks the JWT gate in front of
 `/api` (no token, forged, expired, malformed, unknown or archived account, percent-encoded path). The lib answers
@@ -203,7 +203,7 @@ Every PR requests a review from the whole team, minus its author: `CarolinHugo`,
 - `src/scan/`: `run_database_scan` journals each finding (counts and locations, never a value) in
   `compliance_journal`; `POST /api/v1/scans` runs it now, `main.rs` every `SCAN_INTERVAL_SECONDS`
   (6 h by default, `0` disables it). Needs a Database image with `mair-498-01` (Database #173,
-  on Database main since `dev-76437e3`, the tag of `TEST_DB_VERSION` and the compose images).
+  on Database main since `dev-76437e3`; the tests and the compose stacks run the Database of the stage, MAIR-998).
 
 ## Centralized erasure (MAIR-498)
 
