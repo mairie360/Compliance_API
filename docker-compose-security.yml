@@ -22,7 +22,7 @@ x-common-env: &common-env
 
 services:
   postgres:
-    image: ghcr.io/mairie360/database:dev-76437e3
+    image: ghcr.io/mairie360/database:${UPSTREAM_TAG:-dev}
     restart: always
     container_name: mairie360-db-compliance-api
     environment:
@@ -42,7 +42,7 @@ services:
       retries: 5
 
   liquibase:
-    image: ghcr.io/mairie360/liquibase-migrations:dev-76437e3
+    image: ghcr.io/mairie360/liquibase-migrations:${UPSTREAM_TAG:-dev}
     container_name: mairie360-liquibase-compliance-api
     depends_on:
       postgres:
