@@ -24,7 +24,7 @@ fn expected(callee: &str) -> Option<Vec<&'static str>> {
         "APIs_cicd.yml" | "BFFs-cicd.yml" | "front-libs-cicd.yml" => vec![REVIEW, BUILD],
         "back-lib-cicd.yml" => vec![&["CARGO_REGISTRY_TOKEN"], BUILD, RELEASE_APP],
         "bffs-lib-cicd.yml" | "database_cicd.yml" | "frontend-cicd.yml" => vec![BUILD],
-        "frontend-dev-exception.yml" => vec![],
+        "auto-approve.yml" | "frontend-dev-exception.yml" => vec![],
         "gdpr-pr-cicd.yml" => vec![REVIEW],
         "promote-prod.yml" => vec![
             &["ANTHROPIC_API_KEY", "N8N_WEBHOOK_SECRET"],
