@@ -11,6 +11,6 @@ jobs:
   auto-approve:
     permissions:
       pull-requests: write
-    uses: mairie360/CICD/.github/workflows/auto-approve.yml@v5.14.0
+    uses: mairie360/CICD/.github/workflows/auto-approve.yml@v5.14.1
     with:
-      cicd_version: v5.14.0   # same release as the `uses:` ref
+      cicd_version: v5.14.1   # same release as the `uses:` ref
