@@ -1,26 +1,34 @@
-# Every ignored advisory says why it does not apply and when to drop it (MAIR-427).
+# Advisories ignored on purpose. Every entry says which code path would reach the crate and when it
+# was last triaged. Re-check each one when its crate is bumped, drop it as soon as a fixed version is
+# reachable, and no later than its "Review by" date. The eight Rust repos
+# (API_lib, API_template, Core, Project, Calendar, Message, ELearning, Compliance) keep this file
+# identical: change it in one, port it to the others.
 [advisories]
 ignore = [
     # rsa (Marvin attack, no patched release): timing leak of an RSA *private* key during
     # decryption / signing. Pulled by jsonwebtoken, which this crate only uses to sign and verify
     # HMAC and EdDSA tokens (mairie360_api_lib refuses any other algorithm): no RSA key is ever
     # loaded. Drop it once jsonwebtoken ships a fixed rsa, or if code starts using RSA.
+    # Triaged 2026-11-20. Review by 2027-02-20.
     "RUSTSEC-2023-0071",
-    # h2 0.3 (unbounded empty DATA frames, fixed in 0.4.16 only): pulled by actix-http's default
-    # `http2` feature, which the lib and utoipa-swagger-ui enable. `main.rs` binds plain HTTP/1.1
-    # (`HttpServer::bind`, no TLS, no h2c), so no HTTP/2 frame is ever parsed. Drop it once actix-http
-    # moves to h2 0.4.
+    # h2 0.3 (via actix-http), unbounded empty DATA frames (HTTP/2 denial of service, fixed in
+    # h2 >= 0.4.16). actix-http 3 still pins h2 0.3, and the APIs only serve plain-text HTTP/1.1
+    # (`HttpServer::bind`, TLS ends at the ingress): the HTTP/2 code path is unreachable.
+    # Drop it once actix-http moves to h2 0.4.
+    # Triaged 2026-11-20. Review by 2027-02-20.
     "RUSTSEC-2026-0258",
     # crypto-bigint 0.5 (timing variability of operations meant to be constant-time; fixed in
-    # 0.7.6, which elliptic-curve 0.13 cannot use). Pulled by jsonwebtoken 11.1 (p256/p384), so only
-    # ES256/ES384 operations reach it; mairie360_api_lib only signs and verifies HMAC and EdDSA
-    # tokens (any other algorithm is refused before verification), so the code is never run. Drop
-    # it once jsonwebtoken moves to elliptic-curve 0.14, and remove it at once if code starts
-    # using an EC key.
+    # 0.7.6, which elliptic-curve 0.13 cannot use). Pulled by jsonwebtoken 11.1 (the latest
+    # release) through p256/p384, so only ES256/ES384 operations reach it; these crates only sign
+    # and verify HMAC and EdDSA tokens (any other algorithm is refused before verification),
+    # so the code is never run. Drop it once jsonwebtoken moves to elliptic-curve 0.14, and
+    # remove it at once if code starts using an EC key.
+    # Triaged 2026-11-20. Review by 2027-02-20.
     "RUSTSEC-2026-0387",
-    # libsqlite3-sys 0.37 (C SQLite CVE-2026-119375, fixed in >= 0.39), MAIR-740. It is only listed in
+    # libsqlite3-sys 0.37 (C SQLite CVE-2026-119375, fixed in >= 0.39). It is only listed in
     # Cargo.lock through sqlx's weak `sqlx-sqlite?/...` features: `cargo tree -i libsqlite3-sys
     # --target all --all-features` prints nothing, it is never compiled into the binary. sqlx 0.9
     # pins 0.37. Drop it once sqlx moves to libsqlite3-sys >= 0.39.
+    # Triaged 2026-11-20. Review by 2027-02-20.
     "RUSTSEC-2026-0459"
 ]
