@@ -2,9 +2,9 @@
 [advisories]
 ignore = [
     # rsa (Marvin attack, no patched release): timing leak of an RSA *private* key during
-    # decryption / signing. Pulled by jsonwebtoken, which the APIs use for HS256 tokens and to
-    # *verify* Keycloak RS256 tokens with the realm's public key: no RSA private key is ever loaded.
-    # Drop it once jsonwebtoken ships a fixed rsa, or if an API starts signing with RSA.
+    # decryption / signing. Pulled by jsonwebtoken, which this crate only uses to sign and verify
+    # HMAC and EdDSA tokens (mairie360_api_lib refuses any other algorithm): no RSA key is ever
+    # loaded. Drop it once jsonwebtoken ships a fixed rsa, or if code starts using RSA.
     "RUSTSEC-2023-0071",
     # h2 0.3 (unbounded empty DATA frames, fixed in 0.4.16 only): pulled by actix-http's default
     # `http2` feature, which the lib and utoipa-swagger-ui enable. `main.rs` binds plain HTTP/1.1
@@ -12,12 +12,11 @@ ignore = [
     # moves to h2 0.4.
     "RUSTSEC-2026-0258",
     # crypto-bigint 0.5 (timing variability of operations meant to be constant-time; fixed in
-    # 0.7.6, which elliptic-curve 0.13 cannot use). Pulled by jsonwebtoken 11.1 (the latest
-    # release, through p256/p384), used directly by `src/auth.rs` (HS256 only, no EC key) and via
-    # mairie360_api_lib, which only *verifies* ES256/ES384 Keycloak signatures with public keys: no
-    # secret goes through these operations. Drop it once jsonwebtoken moves to elliptic-curve
-    # 0.14, and remove it at once if code starts signing with (or otherwise using) an EC private
-    # key.
+    # 0.7.6, which elliptic-curve 0.13 cannot use). Pulled by jsonwebtoken 11.1 (p256/p384), so only
+    # ES256/ES384 operations reach it; mairie360_api_lib only signs and verifies HMAC and EdDSA
+    # tokens (any other algorithm is refused before verification), so the code is never run. Drop
+    # it once jsonwebtoken moves to elliptic-curve 0.14, and remove it at once if code starts
+    # using an EC key.
     "RUSTSEC-2026-0387",
     # libsqlite3-sys 0.37 (C SQLite CVE-2026-119375, fixed in >= 0.39), MAIR-740. It is only listed in
     # Cargo.lock through sqlx's weak `sqlx-sqlite?/...` features: `cargo tree -i libsqlite3-sys
