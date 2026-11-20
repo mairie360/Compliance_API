@@ -29,6 +29,8 @@ pub enum Storage {
     Logs,
     S3,
     Redis,
+    /// Only read back from the journal: the erasures of the accounts of earlier versions went through
+    /// Keycloak, and the database enum keeps the value as proof.
     Keycloak,
     Resend,
     Backup,
@@ -78,16 +80,13 @@ impl JournalEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ErasureTargets {
     pub email: String,
-    pub keycloak_subject: Option<String>,
 }
 
 /// A step of the erasure of a user (`erasure_steps.step`), in the order the orchestrator runs
-/// them: the steps that need the e-mail or the Keycloak subject come before the database step,
-/// which clears them; the ones keyed by the user id come after.
+/// them: the steps that need the e-mail come before the database step, which clears it; the ones keyed by the user id come after.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Step {
-    Keycloak,
     Resend,
     Database,
     S3,
@@ -96,8 +95,7 @@ pub enum Step {
 }
 
 impl Step {
-    pub const ORDER: [Self; 6] = [
-        Self::Keycloak,
+    pub const ORDER: [Self; 5] = [
         Self::Resend,
         Self::Database,
         Self::S3,
@@ -108,7 +106,6 @@ impl Step {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Keycloak => "keycloak",
             Self::Resend => "resend",
             Self::Database => "database",
             Self::S3 => "s3",
@@ -120,7 +117,6 @@ impl Step {
     #[must_use]
     pub const fn storage(self) -> Storage {
         match self {
-            Self::Keycloak => Storage::Keycloak,
             Self::Resend => Storage::Resend,
             Self::Database => Storage::Database,
             Self::S3 => Storage::S3,
@@ -129,10 +125,10 @@ impl Step {
         }
     }
 
-    /// Whether the step needs the e-mail or the Keycloak subject (so runs before the database step).
+    /// Whether the step needs the e-mail (so runs before the database step).
     #[must_use]
     pub const fn needs_targets(self) -> bool {
-        matches!(self, Self::Keycloak | Self::Resend)
+        matches!(self, Self::Resend)
     }
 }
 

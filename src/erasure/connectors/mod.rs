@@ -4,7 +4,6 @@
 //! `NotConfigured`: the step is recorded as done with that reason (there is nothing to erase there).
 
 pub mod backup_key;
-pub mod keycloak;
 pub mod redis_keys;
 pub mod resend;
 pub mod s3;
@@ -42,7 +41,6 @@ pub trait Connector: Send + Sync {
 
 /// The connectors of the external steps (the database step is the store's `anonymize`).
 pub struct Connectors {
-    pub keycloak: Box<dyn Connector>,
     pub resend: Box<dyn Connector>,
     pub s3: Box<dyn Connector>,
     pub redis: Box<dyn Connector>,
@@ -55,7 +53,6 @@ impl Connectors {
     pub fn from_env() -> Self {
         let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
         Self {
-            keycloak: Box::new(keycloak::KeycloakConnector::from_env(&var)),
             resend: Box::new(resend::ResendConnector::from_env(&var)),
             s3: Box::new(s3::S3Connector::from_env(&var)),
             redis: Box::new(redis_keys::RedisConnector::from_env(&var)),

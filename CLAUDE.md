@@ -9,15 +9,15 @@ GDPR compliance service of a Mairie 360 instance (MAIR-498, epic MAIR-284). One 
 instance, next to the business APIs, and concentrates what touches erasure and the detection of personal data,
 so that the business services do not carry it:
 
-- **Rights**: the only service holding the Keycloak and Resend admin rights and the erasure rights on S3 and
+- **Rights**: the only service holding the Resend admin rights and the erasure rights on S3 and
   Redis. No API and no BFF carries them.
 - **Continuous deterministic scan**: logs in the ingestion chain (masked before storage, a log store can hardly
   erase a line afterwards); the database in regular passes guided by the personal data inventory
   (Devops/Database `gdpr/inventory.yaml`: rows past their retention, erased or long-archived accounts that keep
-  usable data; the free text of messages is out of scope); S3, Keycloak, Resend; Redis keys with a long TTL only
+  usable data; the free text of messages is out of scope); S3, Resend; Redis keys with a long TTL only
   (the others expire by themselves).
 - **Erasure**: any personal data that should no longer exist (leak in a log, data of an erased user, retention
-  exceeded) is erased. When a user is erased the service propagates it: Keycloak account, Resend contact, S3
+  exceeded) is erased. When a user is erased the service propagates it: Resend contact, S3
   objects, Redis keys and the user's backup encryption key (MAIR-500). Every step is replayable and retried.
 - **Compliance journal**, without the data itself: which kind of data, where (service, storage, logger,
   column), when, and the log line with the value masked. It is also the mairie's proof of erasure (GDPR art. 28
@@ -208,23 +208,20 @@ Every PR requests a review from the whole team, minus its author: `CarolinHugo`,
 
 `POST /api/v1/erasures/{userId}` (service token) starts or resumes the erasure of a user, `GET`
 reads its steps (`erasure_steps`). `src/erasure/mod.rs` runs the steps in order, each idempotent,
-recorded and journaled as proof without the data (`compliance_journal`): Keycloak and Resend first
-(they need the e-mail / Keycloak subject of `fn_erasure_targets`), then the database
-(`anonymize_user`, only once those two are done since it clears them), then S3, Redis and the
+recorded and journaled as proof without the data (`compliance_journal`): Resend first
+(it needs the e-mail of `fn_erasure_targets`), then the database
+(`anonymize_user`, only once it is done since it clears the e-mail), then S3, Redis and the
 backup key (by user id). A failed step stays `failed` with a value-free reason and is retried by
 the background loop (`ERASURE_RETRY_SECONDS`, 300 by default); a service not configured on the
 instance is recorded `done` with "not configured on this instance" (`erasure_skipped`).
 Connectors (`src/erasure/connectors/`, env vars, all optional):
-- Keycloak: `KEYCLOAK_ADMIN_URL`, `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_ADMIN_CLIENT_ID`,
-  `KEYCLOAK_ADMIN_CLIENT_SECRET` (service account with `manage-users`); account by subject, else
-  by e-mail; 404 counts as erased.
 - Resend: `RESEND_API_KEY`, `RESEND_AUDIENCE_ID`, `RESEND_API_URL`; removes the audience contact.
 - S3: `S3_ENDPOINT`, `S3_REGION`, `S3_ERASURE_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
   `S3_ERASURE_PREFIX` (`users/{user_id}/`).
 - Redis: `REDIS_ERASURE_URL`, `REDIS_ERASURE_PATTERNS` (comma-separated, `{user_id}` replaced).
 - Backup key (MAIR-500): `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_REGION`, `KEY_MANAGER_URL`
   (tests); destroys the user's key in Scaleway Key Manager (`backup::keys`), see below.
-Tests fake the store and the connectors; Keycloak and Resend are tested against `wiremock`.
+Tests fake the store and the connectors; Resend is tested against `wiremock`. Core is the only account system: there is no Keycloak step any more (`erasure_steps` rows of that step left by earlier versions are ignored until the Database release that removes them; `Storage::Keycloak` is only read back from old journal entries).
 
 ## Log masking patterns and Redis key scan (MAIR-498)
 
