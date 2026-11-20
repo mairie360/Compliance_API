@@ -5,11 +5,11 @@ GDPR compliance service of a **Mairie 360** instance (MAIR-498, epic MAIR-284), 
 
 What it will do (the first version only adapts the template):
 
-- hold, alone, the Keycloak and Resend admin rights and the erasure rights on S3 and Redis;
+- hold, alone, the Resend admin rights and the erasure rights on S3 and Redis;
 - scan continuously and deterministically: logs before they are stored (masked), the database guided by the
-  personal data inventory (retention exceeded, erased or long-archived accounts), S3, Keycloak, Resend, long-TTL
+  personal data inventory (retention exceeded, erased or long-archived accounts), S3, Resend, long-TTL
   Redis keys;
-- erase what should no longer exist and propagate the erasure of a user (Keycloak account, Resend contact, S3
+- erase what should no longer exist and propagate the erasure of a user (Resend contact, S3
   objects, Redis keys, per-user backup key), each step replayable;
 - keep a compliance journal without the data itself (kind, place, time, masked log line), proof of erasure for
   the mairie.

@@ -81,7 +81,6 @@ mod tests {
             user_id: 7,
             targets: Some(ErasureTargets {
                 email: "jane@example.com".into(),
-                keycloak_subject: None,
             }),
         };
         assert_eq!(connector.erase(&with).await, Ok(Outcome::Erased));

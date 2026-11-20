@@ -92,11 +92,11 @@ macro_rules! view {
     };
 }
 
-view!(TargetsView, "SELECT row_to_json(t) FROM (SELECT (fn_erasure_targets($1) ->> 'email') AS email, (fn_erasure_targets($1) ->> 'keycloak_subject') AS keycloak_subject) t WHERE t.email IS NOT NULL");
-view!(EnsureStepsView, "INSERT INTO erasure_steps (user_id, step) SELECT $1, s FROM unnest(ARRAY['keycloak', 'resend', 'database', 's3', 'redis', 'backup_key']) AS s ON CONFLICT DO NOTHING");
-view!(StepsView, "SELECT row_to_json(t) FROM (SELECT step, status, attempts, last_error FROM erasure_steps WHERE user_id = $1) t");
+view!(TargetsView, "SELECT row_to_json(t) FROM (SELECT (fn_erasure_targets($1) ->> 'email') AS email) t WHERE t.email IS NOT NULL");
+view!(EnsureStepsView, "INSERT INTO erasure_steps (user_id, step) SELECT $1, s FROM unnest(ARRAY['resend', 'database', 's3', 'redis', 'backup_key']) AS s ON CONFLICT DO NOTHING");
+view!(StepsView, "SELECT row_to_json(t) FROM (SELECT step, status, attempts, last_error FROM erasure_steps WHERE user_id = $1 AND step <> 'keycloak') t");
 view!(RecordStepView, "UPDATE erasure_steps SET status = $3, attempts = attempts + 1, last_error = NULLIF($4, ''), updated_at = now() WHERE user_id = $1 AND step = $2");
-view!(UnfinishedView, "SELECT row_to_json(t) FROM (SELECT DISTINCT user_id AS id FROM erasure_steps WHERE status <> 'done' ORDER BY 1) t");
+view!(UnfinishedView, "SELECT row_to_json(t) FROM (SELECT DISTINCT user_id AS id FROM erasure_steps WHERE status <> 'done' AND step <> 'keycloak' ORDER BY 1) t");
 view!(
     UserExistsView,
     "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)"
@@ -159,10 +159,10 @@ impl ComplianceStore for PgStore {
             })
             .await
             .map_err(err)?;
-        Ok(rows.into_iter().next().map(|r| ErasureTargets {
-            email: r.email,
-            keycloak_subject: r.keycloak_subject,
-        }))
+        Ok(rows
+            .into_iter()
+            .next()
+            .map(|r| ErasureTargets { email: r.email }))
     }
 
     async fn ensure_steps(&self, user_id: i32) -> Result<(), StoreError> {
@@ -225,7 +225,6 @@ impl ComplianceStore for PgStore {
 #[derive(Debug, serde::Serialize, Deserialize)]
 struct TargetsRow {
     email: String,
-    keycloak_subject: Option<String>,
 }
 
 // The lib's errors carry no value (mairie360_api_lib 3.0.1).
