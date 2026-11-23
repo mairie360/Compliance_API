@@ -9,15 +9,15 @@ GDPR compliance service of a Mairie 360 instance (MAIR-498, epic MAIR-284). One 
 instance, next to the business APIs, and concentrates what touches erasure and the detection of personal data,
 so that the business services do not carry it:
 
-- **Rights**: the only service holding the Keycloak and Resend admin rights and the erasure rights on S3 and
+- **Rights**: the only service holding the Resend admin rights and the erasure rights on S3 and
   Redis. No API and no BFF carries them.
 - **Continuous deterministic scan**: logs in the ingestion chain (masked before storage, a log store can hardly
   erase a line afterwards); the database in regular passes guided by the personal data inventory
   (Devops/Database `gdpr/inventory.yaml`: rows past their retention, erased or long-archived accounts that keep
-  usable data; the free text of messages is out of scope); S3, Keycloak, Resend; Redis keys with a long TTL only
+  usable data; the free text of messages is out of scope); S3, Resend; Redis keys with a long TTL only
   (the others expire by themselves).
 - **Erasure**: any personal data that should no longer exist (leak in a log, data of an erased user, retention
-  exceeded) is erased. When a user is erased the service propagates it: Keycloak account, Resend contact, S3
+  exceeded) is erased. When a user is erased the service propagates it: Resend contact, S3
   objects, Redis keys and the user's backup encryption key (MAIR-500). Every step is replayable and retried.
 - **Compliance journal**, without the data itself: which kind of data, where (service, storage, logger,
   column), when, and the log line with the value masked. It is also the mairie's proof of erasure (GDPR art. 28
@@ -40,6 +40,16 @@ via `mairie360_api_lib::test_setup::queries_setup::get_shared_db`), `cargo cov_t
 gate, only `main.rs` and `lib.rs` excluded: handlers and validation count, test them), `cargo open_api`
 (OpenAPI JSON on stdout).
 
+Integration tests run the API's code as its own Postgres role, like in staging (MAIR-556):
+`get_shared_db()` is the **superuser** URL, for fixtures only (seeding, creating a probe table and granting
+it, see `tests/transaction_test.rs`); every `AppState` / query view under test connects with
+`get_shared_db_as("compliance_api")` (`API_ROLE` in each test file). A query outside the grants of
+Devops/Database's `api_grants.sql` then fails the test with `permission denied` (SQLSTATE `42501`): add the
+grant there, never connect the code under test as the superuser. `tests/queries/db_role.rs` guards it. The
+compose stacks connect the API as `compliance_api` too (`-Dcompliance_api_password` passed to Liquibase);
+postgres, liquibase and the seeder keep the superuser. `TEST_DB_VERSION` in `.cargo/config.toml` (`dev`) and the
+compose images (`${UPSTREAM_TAG:-dev}`, MAIR-998) follow the Database of the stage, which has the `compliance_api` role.
+
 Access denials are tested, not assumed (MAIR-419): `tests/auth_gate_test.rs` checks the JWT gate in front of
 `/api` (no token, forged, expired, malformed, unknown or archived account, percent-encoded path). The lib answers
 `401` for a bad token and `404` for a well-signed token naming an unknown or archived account. Every new endpoint
@@ -50,9 +60,12 @@ End-to-end harnesses (what CI runs on `main` after the dev release; each spins u
 standalone compose file, so env/image changes must be mirrored in all of them): `./integration_test.sh`
 (`docker-compose-integration.yml`, newman replaying `tests/postman/collection.json` with
 `tests/postman/environment.json`), `./security_test.sh` (ZAP), `./performance_test.sh` (k6). The
-collection is a Postman v2.1 export; its pre-request script forges HS256 JWTs with the stack's
-`JWT_SECRET` (`jwt_admin` for the seeded Admin, `jwt_agent` for user 2 from `init-test.sql`, plus a
-wrong-secret and an expired token), so a new API only adds requests for its endpoints. `baseUrl` is
+collection is a Postman v2.1 export. The Postman sandbox cannot sign EdDSA (MAIR-680), so
+`integration_test.sh` signs the tokens with the run's key (`test_secrets.sh`) and the compose file passes them
+with `--env-var`: `jwt_service` (role `service`), `jwt_agent` (user 2 from `init-test.sql`, refused: not a
+service), `jwt_forged` (Core's `kid`, another key) and `jwt_expired`; the pre-request script only forges
+`jwt_hs256`, an HS256 service token that must be refused. The `Auth` folder checks the service-token gate on
+`GET /api/v1/masking-patterns` (no database). `baseUrl` is
 overridden with `--env-var` by the compose file; the committed default targets `localhost:3004`.
 
 In those three stacks the API service is `image: ${IMAGE_REF}` (no `build:` block): CI sets `IMAGE_REF` to the
@@ -62,8 +75,9 @@ published `ghcr.io/mairie360/<name>:dev-<sha>` image, and the scripts build `com
 stack sets `API_DOCS_ENABLED=true` (shared `x-common-env` anchor): without it the API serves neither Swagger UI nor
 `/api-docs/openapi.json`, which newman, ZAP and k6 read.
 
-The ZAP scan is authenticated and blocking: `security-scan` waits for the `seeder`, injects a static admin JWT
-(`sub=1`, signed with `JWT_SECRET=b"secret"`, see the comment in `docker-compose-security.yml`) on every request
+The ZAP scan is authenticated and blocking: `security-scan` waits for the `seeder`, injects the run's service JWT
+(`SERVICE_JWT`, `sub=zap-scan`, `role=service`, signed by `security_test.sh`, see the comment in
+`docker-compose-security.yml`) on every request
 and fails on any alert not set to `IGNORE` / `OUTOFSCOPE` in `.zap/rules.tsv` (no `-I`; the file is the same in
 every API). `-O http://<service>:<port>` is required, the spec's `servers` being unreachable from the ZAP
 container. ZAP fuzzes every field from the spec examples, so an example that does not deserialize or a `500`
@@ -79,10 +93,20 @@ never reached, or when an operation requiring `jwt` only got 401/403. The auth r
 `endpoints/swagger.rs::SecurityAddon` declares the `jwt` bearer scheme (the name every API uses) at the top level
 and marks every operation outside `/api/` public (`security: []`), mirroring `main.rs`.
 
-`mairie360_api_lib` (2.0+) refuses to start with a missing, short (< 32 bytes) or well-known `JWT_SECRET`
-(MAIR-428). The four compose stacks keep the public test value `b"secret"` (the static ZAP / k6 admin token and the
-Postman script sign with it) and set `JWT_ALLOW_WEAK_SECRET: "true"` next to it: without it the API panics at
-startup and every stack fails. A deployment never sets that variable and gets its own random secret.
+**Session and service tokens (MAIR-680).** Only Core_API signs them, with its Ed25519 key (`EdDSA`, `kid` =
+RFC 7638 thumbprint, `iss` `mairie360-core`, `aud` `mairie360`). This API only gets `JWT_PUBLIC_KEY` (Core's public
+key as PEM, several `PUBLIC KEY` blocks during a rotation, `\n`-escaped line breaks accepted) and checks them with
+the lib's `decode_jwt` (4.3.0). No `JWT_SECRET`: while it is set the lib still accepts HS256 tokens signed with it
+(transition), so a deployment removes it once `JWT_PUBLIC_KEY` is in place, and every HS256 token is then refused.
+
+Every `*_test.sh` sources `test_secrets.sh` (MAIR-428, MAIR-680): a fresh Ed25519 key pair per run (an exported
+`JWT_PRIVATE_KEY` + `JWT_PUBLIC_KEY` pair wins), the public key exported for the API, and
+`sign_jwt <sub> <role> <ttl> [key]` to sign tokens like Core with the private key, which never reaches the API.
+`security_test.sh` / `performance_test.sh` sign `SERVICE_JWT` (`sub=zap-scan`, `role=service`) for ZAP and k6
+(`JWT`). The compose files require them (`${VAR:?}`). **No key or token valid anywhere is committed.** The dev
+stack defaults `JWT_PUBLIC_KEY` to the lib's test public key with `JWT_ALLOW_WEAK_SECRET=true` (dev only); sign a
+dev service token in a subshell with the lib's test key:
+`(export JWT_PRIVATE_KEY="$(openssl pkey -inform DER -in ~/.cargo/registry/src/*/mairie360_api_lib-4.3.0/src/test_setup/fixtures/session_test_key.der)"; export JWT_PUBLIC_KEY="$(printf '%s\n' "$JWT_PRIVATE_KEY" | openssl pkey -pubout)"; source ./test_secrets.sh && sign_jwt core-api service 3600)`.
 
 `load-test.js` is built on `coverage.js`: one handler per operation (`"METHOD /path"`), k6 aborts at init
 otherwise; the spec it reads is the one served by the image under test, saved into the `openapi-spec` volume by
@@ -154,18 +178,15 @@ for the details.
   with `LOG_FORMAT=json`. The request root span is hidden from them (it holds the client address and query string).
 - Traces over OTLP/HTTP, opt-in: nothing is exported unless `OTEL_EXPORTER_OTLP_ENDPOINT` (or
   `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) is set, `OTEL_SDK_DISABLED=true` forces it off, a failing exporter is
-  logged and never stops the API. The endpoint is an agent relaying to Scaleway Cockpit (OTel Collector or Grafana
-  Alloy, e.g. `http://alloy:4318`); `OTEL_SERVICE_NAME` defaults to `compliance-api`.
+  logged and never stops the API. `OTEL_SERVICE_NAME` defaults to `compliance-api`.
 - `main.rs` wraps the app in the lib's `TracingLogger`, inside the request log (`middleware::Logger`, kept), so
-  requests refused by `JwtMiddleware` get a span too. Root spans are named `<METHOD> <route pattern>` and continue
-  an incoming `traceparent`. The SQL appears as span **events** (`db.statement` with `$n` placeholders, never the
-  values). The lib's `Redact` drops `http.client_ip` and the query string before export (MAIR-290, MAIR-501): build
-  test providers with `telemetry::tracer_provider`, never `SdkTracerProvider::builder()`.
+  refused requests get a span too. Root spans are named `<METHOD> <route pattern>` and continue an incoming
+  `traceparent`. The lib's `Redact` drops `http.client_ip` and the query string before export (MAIR-290, MAIR-501):
+  build test providers with `telemetry::tracer_provider`, never `SdkTracerProvider::builder()`.
 - Never add `opentelemetry*` / `tracing-actix-web` to `Cargo.toml`: use the lib's re-exports, its versions are
   coupled. `tracing-subscriber` is a dev-dependency only, for the test subscriber.
-- `tests/telemetry_test.rs` asserts the span of `/ready` (status, route, continued trace id, no query string nor
-  client address, SQL event) and of a `401` refused by `JwtMiddleware`; the redaction of logs and spans is tested
-  in the lib.
+- `tests/telemetry_test.rs` asserts the request spans (status, route, continued trace id, no query string nor
+  client address); the redaction of logs and spans is tested in the lib.
 
 ## CI and Renovate
 
@@ -176,8 +197,7 @@ on pushes to `main` (plus releases and the three stacks). Its `integration_tests
 standard API config: org preset, GitHub Actions pinned by digest, the `cicd_version` custom manager and the
 `mairie360/CICD` group (both references in `cicd.yml` bumped in one PR).
 
-`auto-approve.yml` approves Renovate PRs on the PR author (`github.event.pull_request.user.login`, not
-`github.actor`), with `pull-requests: write` only and the action pinned by SHA. Both `Dockerfile`s pin their base
+`auto-approve.yml` calls the reusable auto-approval of mairie360/CICD (same tag on `uses:` and `cicd_version`), which approves a Renovate PR only while Renovate alone wrote and pushed it and takes the approval back after any other push; `pull-requests: write` only (`tests/mair_685_auto_approve.rs`). Both `Dockerfile`s pin their base
 images by digest (`tests/dockerfile_test.rs` enforces it) and build with `--locked`; the production one builds
 the dependencies in their own cached layer first (MAIR-427). Every advisory ignored in `.cargo/audit.toml` carries
 a comment saying why it does not apply and when to drop it: no bare ignore, and a patched version is taken with
@@ -186,3 +206,79 @@ a comment saying why it does not apply and when to drop it: no bare ignore, and 
 ## Pull request reviewers
 
 Every PR requests a review from the whole team, minus its author: `CarolinHugo`, `LAURETbenjamin`, `MathTek` and `Quentintnrl` (`gh pr create … --reviewer CarolinHugo,LAURETbenjamin,MathTek`). `.github/CODEOWNERS` makes GitHub request them automatically as well.
+
+## Service authentication and the database scan (MAIR-498)
+
+- Only other services of the instance call this API: every handler under `/api` takes a
+  `ServiceCaller` (`src/auth.rs`): a JWT signed by Core_API (EdDSA, checked against
+  `JWT_PUBLIC_KEY` by the lib's `decode_jwt`, MAIR-680), `role: service`, `sub` = the calling
+  service; no account lookup (the agents' `JwtMiddleware` is not mounted). A caller therefore needs
+  a service token issued by Core. Reversible default until mTLS or a dedicated credential is
+  decided. `tests/mair_680_service_token.rs` checks the gate (EdDSA accepted, HS256 / another key /
+  agent role refused); the test stacks sign their service token per run (`test_secrets.sh`).
+- `src/store/`: `ComplianceStore` (trait, faked in tests) and `PgStore` (as the `compliance_api`
+  role of Devops/Database: no read on personal tables, only `fn_compliance_scan()`, the journal and
+  the erasure steps).
+- `src/scan/`: `run_database_scan` journals each finding (counts and locations, never a value) in
+  `compliance_journal`; `POST /api/v1/scans` runs it now, `main.rs` every `SCAN_INTERVAL_SECONDS`
+  (6 h by default, `0` disables it). Needs a Database image with `mair-498-01` (Database #173,
+  on Database main since `dev-76437e3`; the tests and the compose stacks run the Database of the stage, MAIR-998).
+
+## Centralized erasure (MAIR-498)
+
+`POST /api/v1/erasures/{userId}` (service token) starts or resumes the erasure of a user, `GET`
+reads its steps (`erasure_steps`). `src/erasure/mod.rs` runs the steps in order, each idempotent,
+recorded and journaled as proof without the data (`compliance_journal`): Resend first
+(it needs the e-mail of `fn_erasure_targets`), then the database
+(`anonymize_user`, only once it is done since it clears the e-mail), then S3, Redis and the
+backup key (by user id). A failed step stays `failed` with a value-free reason and is retried by
+the background loop (`ERASURE_RETRY_SECONDS`, 300 by default); a service not configured on the
+instance is recorded `done` with "not configured on this instance" (`erasure_skipped`).
+Connectors (`src/erasure/connectors/`, env vars, all optional):
+- Resend: `RESEND_API_KEY`, `RESEND_AUDIENCE_ID`, `RESEND_API_URL`; removes the audience contact.
+- S3: `S3_ENDPOINT`, `S3_REGION`, `S3_ERASURE_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
+  `S3_ERASURE_PREFIX` (`users/{user_id}/`).
+- Redis: `REDIS_ERASURE_URL`, `REDIS_ERASURE_PATTERNS` (comma-separated, `{user_id}` replaced).
+- Backup key (MAIR-500): `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_REGION`, `KEY_MANAGER_URL`
+  (tests); destroys the user's key in Scaleway Key Manager (`backup::keys`), see below.
+Tests fake the store and the connectors; Resend is tested against `wiremock`. Core is the only account system: there is no Keycloak step any more (`erasure_steps` rows of that step left by earlier versions are ignored until the Database release that removes them; `Storage::Keycloak` is only read back from old journal entries).
+
+## Log masking patterns and Redis key scan (MAIR-498)
+
+`masking-patterns.yaml` (embedded by `src/masking.rs`) lists the personal data a log line must
+never carry (e-mail, French phone number, JWT, bearer token, argon2 hash), as RE2-compatible
+regexes with their replacement. `GET /api/v1/masking-patterns` (service token) serves them; the
+instance's OpenTelemetry Collector (Deploiment) applies them before storage. IP addresses are kept
+on purpose (security logs). Every pattern has a test in `src/masking.rs`; keep them RE2-only (no
+look-around, no back-reference), the collector runs Go regexes.
+`src/scan/redis_keys.rs` scans the keys of `REDIS_SCAN_URL` (optional) with `SCAN`, groups them by
+prefix (before the first `:`) and journals `redis_no_ttl` / `redis_long_ttl` (TTL above
+`REDIS_LONG_TTL_SECONDS`, 30 days by default): counts per prefix, never a key or a value. It runs
+with the database scan (`run_scans`), from `POST /api/v1/scans` and the background loop.
+
+## Backups encrypted with a key per user (MAIR-500)
+
+Crypto-shredding of the backups: the live database stays in clear; `src/backup/` and the second
+binary `compliance-backup` (`/app/compliance-backup` in the image) seal a **throwaway copy** of it
+before the backup Job of Devops/Deploiment hands it to restic.
+- `plan.rs`: what is sealed, from the inventory (`gdpr/inventory.yaml` of Devops/Database): a table
+  whose user column is erased by deletion moves the user's rows whole into the blob (unless another
+  table references it: a restore would fail on the foreign key, only its columns are sealed then);
+  otherwise the personal columns the erasure clears (`anonymize` / `delete`, identifiers kept),
+  plus `users_audit_log.previous_data` / `new_data` (`ALSO_SEALED`: MAIR-289 hashes them at
+  erasure). The user of a row is its `user_id`, else its first identifier column.
+- `seal.rs`: per user, in one transaction with triggers off (`session_replication_role = replica`,
+  superuser on the copy only), reads those values, encrypts them (AES-256-GCM, `crypto.rs`, aad =
+  the user id) with a fresh data key of the user wrapped by the user's key in the key manager
+  (`keys.rs`, envelope encryption: only the wrapped data key is in the backup), writes
+  `users/<id>.json`, and replaces them in the copy by placeholders (`NULL`, `'sealed'`,
+  `sealed-<id>@sealed.invalid` for an e-mail, `{}` for JSON). `unseal` puts back, in a restored
+  database, every user whose key still answers; a destroyed key (erased user, 404) leaves the user
+  sealed, i.e. restored anonymized. Nothing in a backup is ever modified.
+- `keys.rs`: `KeyManager` trait; `ScalewayKeyManager` (REST `key-manager/v1alpha1`, one key
+  `mairie360-user-<id>` per user, `generate-data-key` / `decrypt` / `DELETE`; exact field names to
+  confirm on the first real run against Scaleway); `InMemoryKeyManager` for tests and local stacks.
+- `tests/backup_test.rs` (testcontainers `postgres:18-alpine`): the sealed copy holds none of the
+  marker values, no key is in the backup, a restore with every key gives the original back, and
+  after destroying one user's key the untouched backup restores that user anonymized.
+

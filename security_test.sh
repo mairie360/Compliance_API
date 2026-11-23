@@ -18,6 +18,14 @@ fi
 export IMAGE_REF
 echo "==> API image under test: $IMAGE_REF"
 
+# Fresh Ed25519 key pair for this run: the API gets its public key, and SERVICE_JWT (sub=zap-scan,
+# role=service, 2 hours: only services call this API, MAIR-498) is signed with it like Core signs
+# it (MAIR-428, MAIR-680, test_secrets.sh). No key or token is committed.
+# shellcheck source=test_secrets.sh
+source "$(dirname "$0")/test_secrets.sh" || exit 1
+SERVICE_JWT="$(sign_jwt zap-scan service 7200)" || exit 1
+export SERVICE_JWT
+
 # Shared CI test files (OpenAPI coverage gate, MAIR-194: ZAP hook and k6 coverage module). CI
 # checks mairie360/CICD out as cicd-repo/; locally it is cloned once at the cicd_version pinned in
 # .github/workflows/cicd.yml (override with CICD_VERSION, e.g. a branch not released yet).

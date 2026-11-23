@@ -12,7 +12,6 @@ use mairie360_api_lib::logging::telemetry::opentelemetry_sdk::trace::{
     InMemorySpanExporter, SdkTracerProvider, SimpleSpanProcessor, SpanData,
 };
 use mairie360_api_lib::logging::telemetry::{trace_layer, tracer_provider, TracingLogger};
-use mairie360_api_lib::security::JwtMiddleware;
 use mairie360_api_lib::state::AppState;
 use mairie360_api_lib::test_setup::queries_setup::get_shared_db;
 use serial_test::serial;
@@ -103,8 +102,9 @@ async fn a_request_is_exported_as_a_span_with_its_sql() {
     );
 }
 
-/// Mounted like `main.rs` (`TracingLogger` around the `/api` scope and its `JwtMiddleware`): a
-/// request the gate refuses before any handler runs still gets its span, with its status.
+/// Mounted like `main.rs` (`TracingLogger` around the `/api` scope, whose handlers take a
+/// `ServiceCaller`): a request refused for want of a service token still gets its span, with its
+/// status.
 #[actix_web::test]
 #[serial]
 async fn a_refused_request_still_gets_its_span() {
@@ -115,19 +115,15 @@ async fn a_refused_request_still_gets_its_span() {
         App::new()
             .wrap(TracingLogger::default())
             .app_data(web::Data::new(state))
-            .service(
-                web::scope("/api")
-                    .wrap(JwtMiddleware)
-                    .configure(compliance_api::endpoints::config),
-            ),
+            .service(web::scope("/api").configure(compliance_api::endpoints::config)),
     )
     .await;
     exporter.reset();
 
-    // No JWT: `JwtMiddleware` refuses before the handler runs.
+    // No service token: the `ServiceCaller` extractor refuses before the handler body runs.
     let _ = actix_web::test::try_call_service(
         &app,
-        TestRequest::get().uri("/api/v1/scans/").to_request(),
+        TestRequest::post().uri("/api/v1/scans").to_request(),
     )
     .await;
 
@@ -135,7 +131,7 @@ async fn a_refused_request_still_gets_its_span() {
     let spans = exporter.get_finished_spans().unwrap();
     let span = spans
         .iter()
-        .find(|span| span.name.starts_with("GET"))
+        .find(|span| span.name.starts_with("POST"))
         .unwrap_or_else(|| panic!("no span for the refused request: {spans:#?}"));
     assert_eq!(attribute(span, "http.status_code"), Some(&Value::I64(401)));
 }

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Compliance API integration tests",
-    "description": "Smoke tests replayed by newman in CI (MAIR-117). `baseUrl` is injected by docker-compose-integration.yml; the default in environment.json targets a local stack. JWTs are forged in the collection pre-request script with the stack's JWT_SECRET for the seeded Admin (user 1) and a plain user (user 2, seeded by init-test.sql). The template has no business endpoint: this collection covers the service probes, the OpenAPI document and the JWT gate. A new API keeps these folders and adds its own scenario (see the sibling APIs for the pattern).",
+    "description": "Smoke tests replayed by newman in CI (MAIR-117). `baseUrl` is injected by docker-compose-integration.yml; the default in environment.json targets a local stack. Only services call this API (MAIR-498) and it only holds Core's public key (MAIR-680): integration_test.sh signs, with the run's key, a service token (role service), a plain agent token (user 2, seeded by init-test.sql), a forged and an expired service token and passes them with --env-var; the pre-request script only forges an HS256 token, which must be refused. This collection covers the service probes, the OpenAPI document and the service-token gate.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "event": [
@@ -10,21 +10,17 @@
       "script": {
         "type": "text/javascript",
         "exec": [
-          "// The API has no login route: JWTs are forged here exactly like mairie360_api_lib::jwt_manager",
-          "// does (HS256, claims { sub, role, exp }), signed with the JWT_SECRET of the compose stack.",
+          "// MAIR-680: the API only holds Core's public key. The EdDSA tokens (jwt_service, jwt_agent,",
+          "// jwt_forged, jwt_expired) are signed by integration_test.sh with the run's key and passed with",
+          "// --env-var (the Postman sandbox cannot sign EdDSA). This script only forges jwt_hs256: an HS256",
+          "// service token signed with a random secret, which the API must refuse whatever the secret.",
           "const cryptoJs = require('crypto-js');",
           "const b64url = (words) => cryptoJs.enc.Base64.stringify(words).replace(/=+$/, '').replace(/\\+/g, '-').replace(/\\//g, '_');",
-          "const sign = (userId, secret, ttlSeconds) => {",
-          "    const header = b64url(cryptoJs.enc.Utf8.parse(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));",
-          "    const exp = Math.floor(Date.now() / 1000) + ttlSeconds;",
-          "    const payload = b64url(cryptoJs.enc.Utf8.parse(JSON.stringify({ sub: String(userId), role: '', exp })));",
-          "    return `${header}.${payload}.${b64url(cryptoJs.HmacSHA256(`${header}.${payload}`, secret))}`;",
-          "};",
-          "const secret = pm.environment.get('jwt_secret');",
-          "pm.environment.set('jwt_admin', sign(pm.environment.get('admin_user_id'), secret, 3600));",
-          "pm.environment.set('jwt_agent', sign(pm.environment.get('agent_user_id'), secret, 3600));",
-          "pm.environment.set('jwt_forged', sign(pm.environment.get('admin_user_id'), 'not-the-secret', 3600));",
-          "pm.environment.set('jwt_expired', sign(pm.environment.get('admin_user_id'), secret, -3600));"
+          "const header = b64url(cryptoJs.enc.Utf8.parse(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));",
+          "const exp = Math.floor(Date.now() / 1000) + 3600;",
+          "const payload = b64url(cryptoJs.enc.Utf8.parse(JSON.stringify({ sub: 'zap-scan', role: 'service', exp })));",
+          "const secret = cryptoJs.lib.WordArray.random(32);",
+          "pm.environment.set('jwt_hs256', `${header}.${payload}.${b64url(cryptoJs.HmacSHA256(`${header}.${payload}`, secret))}`);"
         ]
       }
     }
@@ -143,19 +139,19 @@
       "name": "Auth",
       "item": [
         {
-          "name": "Protected scope without JWT is rejected",
+          "name": "Service route without JWT is rejected",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/",
+              "raw": "{{baseUrl}}/api/v1/masking-patterns",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "v1",
-                ""
+                "masking-patterns"
               ]
             }
           },
@@ -175,7 +171,7 @@
           "response": []
         },
         {
-          "name": "JWT signed with another secret is rejected",
+          "name": "MAIR-680 EdDSA JWT signed with another key under Core's kid is rejected",
           "request": {
             "method": "GET",
             "header": [
@@ -186,14 +182,14 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/",
+              "raw": "{{baseUrl}}/api/v1/masking-patterns",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "v1",
-                ""
+                "masking-patterns"
               ]
             }
           },
@@ -213,7 +209,49 @@
           "response": []
         },
         {
-          "name": "Expired JWT is rejected",
+          "name": "MAIR-680 HS256 service JWT is rejected without JWT_SECRET",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_hs256}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/masking-patterns",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "masking-patterns"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test(\"Error answer is plain text and does not echo the token\", function () {",
+                  "    pm.expect(pm.response.headers.get('Content-Type') || '').to.not.include('html');",
+                  "    pm.expect(pm.response.text()).to.not.include(pm.environment.get('jwt_hs256'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Expired service JWT is rejected",
           "request": {
             "method": "GET",
             "header": [
@@ -224,14 +262,14 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/",
+              "raw": "{{baseUrl}}/api/v1/masking-patterns",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "v1",
-                ""
+                "masking-patterns"
               ]
             }
           },
@@ -251,49 +289,7 @@
           "response": []
         },
         {
-          "name": "Valid JWT passes the gate",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_admin}}",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                ""
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"Status is 404\", function () {",
-                  "    pm.response.to.have.status(404);",
-                  "});",
-                  "pm.test(\"Nothing is mounted under /api/v1 in the compliance service yet\", function () {",
-                  "    // 404 rather than 401: the JWT was accepted, the service has no route there yet.",
-                  "    pm.expect(pm.response.code).to.not.eql(401);",
-                  "});"
-                ]
-              }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Valid JWT of the seeded plain user passes the gate",
+          "name": "Agent JWT signed by Core is rejected (not a service token)",
           "request": {
             "method": "GET",
             "header": [
@@ -304,14 +300,14 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/",
+              "raw": "{{baseUrl}}/api/v1/masking-patterns",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "v1",
-                ""
+                "masking-patterns"
               ]
             }
           },
@@ -321,8 +317,54 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 404\", function () {",
-                  "    pm.response.to.have.status(404);",
+                  "pm.test(\"Status is 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "MAIR-680 Valid service JWT is accepted (EdDSA, Core's key)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_service}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/masking-patterns",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "masking-patterns"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"The masking patterns are listed\", function () {",
+                  "    pm.expect(pm.response.json()).to.be.an('array');",
+                  "});",
+                  "pm.test(\"The token is an EdDSA token under Core's kid (MAIR-680)\", function () {",
+                  "    const header = JSON.parse(atob(pm.environment.get('jwt_service').split('.')[0].replace(/-/g, '+').replace(/_/g, '/')));",
+                  "    pm.expect(header.alg).to.eql('EdDSA');",
+                  "    pm.expect(header.kid).to.be.a('string').and.not.empty;",
                   "});"
                 ]
               }
@@ -330,7 +372,8 @@
           ],
           "response": []
         }
-      ]
+      ],
+      "description": "Only services call this API (MAIR-498): every /api route takes a service JWT (role service). MAIR-680: the token must be signed by Core's Ed25519 key; GET /api/v1/masking-patterns (no database) stands for every route."
     }
   ]
 }

@@ -16,8 +16,10 @@ cov_test = ["llvm-cov", "--workspace", "--ignore-filename-regex", "main\\.rs|lib
 
 cov = ["llvm-cov", "--workspace", "--ignore-filename-regex", "main\\.rs|lib\\.rs", "--fail-under-lines", "60", "--codecov", "--output-path", "codecov.json"]
 
-# Version of the ghcr.io/mairie360/database and liquibase-migrations images the tests start
-# (mairie360_api_lib::test_setup), kept equal to the compose files: the latest published
-# dev-<sha> image of Devops/Database. An exported TEST_DB_VERSION still wins.
+# Tag of the ghcr.io/mairie360/database and liquibase-migrations images the tests start
+# (mairie360_api_lib::test_setup): `dev`, the stage of the cargo tests, like the compose stacks
+# outside the promotions (MAIR-998: nothing to re-pin when the Database releases).
+# mairie360_api_lib passes -Dallow_template_admin=true where the migration needs it. An
+# exported TEST_DB_VERSION still wins.
 [env]
-TEST_DB_VERSION = "dev-fb7c223"
+TEST_DB_VERSION = "dev"
