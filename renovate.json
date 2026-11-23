@@ -6,7 +6,7 @@
   ],
   "packageRules": [
     {
-      "description": "The reusable workflow is referenced twice in cicd.yml (`uses:` pinned by commit, and the `cicd_version` input): bump both in one PR (MAIR-427).",
+      "description": "cicd.yml, promote-staging.yml and promote-prod.yml each reference the reusable workflow twice (`uses:` and the `cicd_version` input): bump them all in one PR (MAIR-427, MAIR-494).",
       "matchPackageNames": [
         "mairie360/CICD"
       ],
@@ -17,7 +17,7 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^\\.github/workflows/cicd\\.yml$/"
+        "/^\\.github/workflows/(cicd|promote-staging|promote-prod)\\.yml$/"
       ],
       "matchStrings": [
         "cicd_version:\\s*(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
