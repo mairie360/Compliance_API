@@ -7,5 +7,11 @@
     clippy::cast_sign_loss
 )]
 
+pub mod auth;
+pub mod backup;
 pub mod database;
 pub mod endpoints;
+pub mod erasure;
+pub mod masking;
+pub mod scan;
+pub mod store;

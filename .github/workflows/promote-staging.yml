@@ -1,7 +1,7 @@
 name: Promote to Staging
 
 # MAIR-494: manual promotion of a commit of main to staging (mairie360/CICD promote-staging.yml).
-# `gh workflow run promote-staging.yml [-f sha=<sha>]`; the Staging environment approval still applies.
+# `gh workflow run promote-staging.yml` (add `-f sha=SHA` for a given commit); the Staging environment approval still applies.
 on:
   workflow_dispatch:
     inputs:
@@ -24,14 +24,11 @@ jobs:
       contents: read
       packages: write
       actions: read
-    uses: mairie360/CICD/.github/workflows/promote-staging.yml@v4.4.0
+    uses: mairie360/CICD/.github/workflows/promote-staging.yml@v5.14.1
     with:
       stack: apis
-      package_name: template-api
-      cicd_version: v4.4.0
+      package_name: compliance-api
+      cicd_version: v5.14.1
       sha: ${{ inputs.sha }}
     secrets:
       N8N_WEBHOOK_SECRET: ${{ secrets.N8N_WEBHOOK_SECRET }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
-      RELEASE_APP_PK: ${{ secrets.RELEASE_APP_PK }}

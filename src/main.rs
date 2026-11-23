@@ -9,13 +9,16 @@
 
 use actix_web::{middleware, web, App, HttpServer};
 
-use api_template::database::pg_url::build_pg_url; // change api name
-use api_template::endpoints::health::wait_for_postgres; // change api name
-use api_template::endpoints::swagger::{api_docs_enabled, ApiDoc, API_DOCS_ENABLED}; // change api name
-use api_template::endpoints::{config, health}; // change api name
+use compliance_api::database::pg_url::build_pg_url;
+use compliance_api::endpoints::health::wait_for_postgres;
+use compliance_api::endpoints::swagger::{api_docs_enabled, ApiDoc, API_DOCS_ENABLED};
+use compliance_api::endpoints::{config, health};
+use compliance_api::erasure::connectors::Connectors;
+use compliance_api::erasure::{retry_unfinished, DEFAULT_RETRY_SECONDS};
+use compliance_api::scan::{run_scans, scan_interval};
+use compliance_api::store::pg::PgStore;
 
 use mairie360_api_lib::env_manager::{get_critical_env_var, get_env_var};
-use mairie360_api_lib::security::JwtMiddleware;
 use mairie360_api_lib::state::AppState;
 
 use tracing_subscriber::EnvFilter;
@@ -52,6 +55,39 @@ async fn main() -> std::io::Result<()> {
         tracing::error!("Postgres did not answer at startup, exiting");
         return Err(std::io::Error::other("Postgres unreachable at startup"));
     }
+    // Permanent scan (MAIR-498): every SCAN_INTERVAL_SECONDS (6 h by default, 0 disables it).
+    if let Some(interval) = scan_interval(get_env_var("SCAN_INTERVAL_SECONDS").as_deref()) {
+        let store = PgStore::new(state.get_smart_db().clone());
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            loop {
+                ticker.tick().await;
+                if let Err(error) = run_scans(&store).await {
+                    tracing::error!(error = %error, "scheduled compliance scan failed");
+                }
+            }
+        });
+    }
+    // Erasure connectors (MAIR-498) and the background retry of the unfinished erasures, every
+    // ERASURE_RETRY_SECONDS (5 min by default).
+    let connectors = web::Data::new(Connectors::from_env());
+    {
+        let store = PgStore::new(state.get_smart_db().clone());
+        let connectors = connectors.clone();
+        let seconds = get_env_var("ERASURE_RETRY_SECONDS")
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(DEFAULT_RETRY_SECONDS)
+            .max(10);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(seconds));
+            loop {
+                ticker.tick().await;
+                if let Err(error) = retry_unfinished(&store, &connectors).await {
+                    tracing::error!(error = %error, "erasure retry failed");
+                }
+            }
+        });
+    }
     let data = web::Data::new(state);
     let host = get_critical_env_var("HOST");
     let port = get_critical_env_var("PORT");
@@ -62,6 +98,7 @@ async fn main() -> std::io::Result<()> {
     let server = HttpServer::new(move || {
         App::new()
             .app_data(data.clone())
+            .app_data(connectors.clone())
             .wrap(middleware::Logger::default())
             // Every response is JSON or plain text: forbid browsers from sniffing it as HTML.
             .wrap(middleware::DefaultHeaders::new().add(("X-Content-Type-Options", "nosniff")))
@@ -78,8 +115,9 @@ async fn main() -> std::io::Result<()> {
             // 2. Public probes
             .service(health::health)
             .service(health::ready)
-            // 3. Endpoints protected by the JWT
-            .service(web::scope("/api").wrap(JwtMiddleware).configure(config))
+            // 3. Endpoints for the other services of the instance: every handler takes a
+            //    `ServiceCaller` (service JWT, `auth.rs`); no agent calls this service.
+            .service(web::scope("/api").configure(config))
     })
     .bind(bind_address)?;
 

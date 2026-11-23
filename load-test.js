@@ -17,14 +17,14 @@ import http from 'k6/http';
 import { check, fail, sleep } from 'k6';
 import { createCoverage, loadSpec } from '/coverage.js';
 
-const BASE_URL = (__ENV.BASE_URL || 'http://localhost:3000').replace(/\/+$/, ''); // change port
+const BASE_URL = (__ENV.BASE_URL || 'http://localhost:3004').replace(/\/+$/, '');
 
-// Static HS256 JWT (sub=1, the Admin seeded by liquibase, role=admin, exp=2100, signed with the
-// stack's JWT_SECRET=b"secret"), the same one ZAP injects. Sent on every request so the `jwt`
-// operations under /api are exercised authenticated; public routes ignore it.
-const TOKEN =
-  __ENV.JWT ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwiZXhwIjo0MTAyNDQ0ODAwfQ.xCeBe_2QxRlXW8WXr3t6F69wbEHA93HbP_7l4OTJwjA';
+// Service JWT of the run (sub=zap-scan, role=service, 2 hours), signed by performance_test.sh with
+// the run's Ed25519 key like Core signs it (test_secrets.sh, MAIR-680) and passed as `JWT`: only
+// services call this API (MAIR-498, src/auth.rs), and k6 cannot sign Ed25519. No token is
+// committed. Public routes ignore it.
+if (!__ENV.JWT) throw new Error('Set JWT (the service token signed by performance_test.sh)');
+const TOKEN = __ENV.JWT;
 const AUTH = { Authorization: `Bearer ${TOKEN}` };
 
 // p(95) latency budget of each family of operations, in ms (reference machine).
@@ -69,9 +69,17 @@ const spec = loadSpec();
 const readHandlers = {
   'GET /health': ({ request }) => check(request(), { 'health 200': (r) => r.status === 200 }),
   'GET /ready': ({ request }) => check(request(), { 'ready 200': (r) => r.status === 200 }),
+  'GET /api/v1/masking-patterns': ({ request }) => check(request(), { 'patterns 200': (r) => r.status === 200 }),
+  'GET /api/v1/erasures/{userId}': ({ request }) =>
+    check(request({ path: { userId: 2 } }), { 'erasure read': (r) => r.status === 200 || r.status === 404 }),
 };
 
-const writeHandlers = {};
+const writeHandlers = {
+  'POST /api/v1/scans': ({ request }) => check(request(), { 'scan 200': (r) => r.status === 200 }),
+  // The seeded account 2: erased once, the next calls only read its finished steps (202).
+  'POST /api/v1/erasures/{userId}': ({ request }) =>
+    check(request({ path: { userId: 2 } }), { 'erasure 202': (r) => r.status === 202 }),
+};
 
 const reads = createCoverage(readHandlers, {
   spec: specSubset(spec, (method) => READ_METHODS.includes(method)),

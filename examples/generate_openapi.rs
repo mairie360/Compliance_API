@@ -1,4 +1,4 @@
-use api_template::endpoints::swagger::ApiDoc; // change api name
+use compliance_api::endpoints::swagger::ApiDoc;
 use utoipa::OpenApi;
 
 fn main() {

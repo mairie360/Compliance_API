@@ -1,0 +1,168 @@
+//! The permanent scan (MAIR-498): runs the deterministic database scan, journals every finding
+//! (counts and locations only) and returns them. Started on demand (`POST /api/v1/scans`) and
+//! every `SCAN_INTERVAL_SECONDS` (6 hours by default) by `main.rs`.
+
+pub mod redis_keys;
+
+use crate::store::{ComplianceStore, Finding, JournalEntry, StoreError};
+
+/// Default period of the background scan.
+pub const DEFAULT_SCAN_INTERVAL_SECONDS: u64 = 6 * 3600;
+
+/// Runs one database scan and journals its findings.
+///
+/// # Errors
+///
+/// The store's error when the scan cannot run; a failed journal write is returned too, so that a
+/// finding is never silently lost. The findings of one scan are journaled in one transaction: a
+/// failure leaves none of them, so the retry does not journal the first ones twice.
+pub async fn run_database_scan(store: &dyn ComplianceStore) -> Result<Vec<Finding>, StoreError> {
+    let findings = store.scan().await?;
+    let entries: Vec<JournalEntry> = findings.iter().map(JournalEntry::finding).collect();
+    store.journal_all(&entries).await?;
+    tracing::info!(findings = findings.len(), "database compliance scan done");
+    Ok(findings)
+}
+
+/// Runs the database scan, then the scan of the long-lived Redis keys when `REDIS_SCAN_URL` is set.
+///
+/// # Errors
+///
+/// The first scan that cannot run.
+pub async fn run_scans(store: &dyn ComplianceStore) -> Result<Vec<Finding>, StoreError> {
+    let mut findings = run_database_scan(store).await?;
+    let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    if let Some(keys) = redis_keys::RedisKeySpace::from_env(&var) {
+        let long_ttl = var("REDIS_LONG_TTL_SECONDS")
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(redis_keys::DEFAULT_LONG_TTL_SECONDS);
+        findings.extend(redis_keys::run_redis_scan(store, &keys, long_ttl).await?);
+    }
+    Ok(findings)
+}
+
+/// The period of the background scan, from `SCAN_INTERVAL_SECONDS` (0 disables it).
+#[must_use]
+pub fn scan_interval(value: Option<&str>) -> Option<std::time::Duration> {
+    let seconds = value
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_SCAN_INTERVAL_SECONDS);
+    (seconds > 0).then(|| std::time::Duration::from_secs(seconds))
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::{run_database_scan, scan_interval};
+    use crate::store::{
+        Action, ComplianceStore, ErasureTargets, Finding, JournalEntry, Step, StepState,
+        StepStatus, Storage, StoreError,
+    };
+    use async_trait::async_trait;
+    use std::sync::Mutex;
+
+    /// In-memory store for the tests of the scan and the erasure.
+    #[derive(Default)]
+    pub struct FakeStore {
+        pub findings: Vec<Finding>,
+        pub journal: Mutex<Vec<JournalEntry>>,
+        /// Index of the entry whose write fails in `journal_all`, if any.
+        pub fail_journal_at: Option<usize>,
+    }
+
+    #[async_trait]
+    impl ComplianceStore for FakeStore {
+        async fn scan(&self) -> Result<Vec<Finding>, StoreError> {
+            Ok(self.findings.clone())
+        }
+
+        async fn journal(&self, entry: &JournalEntry) -> Result<(), StoreError> {
+            self.journal.lock().unwrap().push(entry.clone());
+            Ok(())
+        }
+
+        // Like the transaction of PgStore: the batch fails as a whole when one entry is refused.
+        async fn journal_all(&self, entries: &[JournalEntry]) -> Result<(), StoreError> {
+            if self.fail_journal_at.is_some_and(|n| n < entries.len()) {
+                return Err(StoreError("journal write refused".into()));
+            }
+            self.journal.lock().unwrap().extend(entries.iter().cloned());
+            Ok(())
+        }
+
+        // The scan never touches the erasure: these are unreachable in its tests.
+        async fn user_exists(&self, _: i32) -> Result<bool, StoreError> {
+            Ok(false)
+        }
+        async fn erasure_targets(&self, _: i32) -> Result<Option<ErasureTargets>, StoreError> {
+            Ok(None)
+        }
+        async fn ensure_steps(&self, _: i32) -> Result<(), StoreError> {
+            Ok(())
+        }
+        async fn steps(&self, _: i32) -> Result<Vec<StepState>, StoreError> {
+            Ok(vec![])
+        }
+        async fn record_step(
+            &self,
+            _: i32,
+            _: Step,
+            _: StepStatus,
+            _: Option<&str>,
+        ) -> Result<(), StoreError> {
+            Ok(())
+        }
+        async fn unfinished_erasures(&self) -> Result<Vec<i32>, StoreError> {
+            Ok(vec![])
+        }
+        async fn anonymize(&self, _: i32) -> Result<(), StoreError> {
+            Ok(())
+        }
+    }
+
+    #[actix_web::test]
+    async fn every_finding_is_journaled_without_value() {
+        let store = FakeStore {
+            findings: vec![Finding {
+                kind: "retention_overdue".into(),
+                location: "sessions".into(),
+                rows: 3,
+                detail: "older than 6 mons".into(),
+            }],
+            ..FakeStore::default()
+        };
+        let findings = run_database_scan(&store).await.unwrap();
+        assert_eq!(findings.len(), 1);
+        let journal = store.journal.lock().unwrap();
+        assert_eq!(journal.len(), 1);
+        assert_eq!(journal[0].storage, Storage::Database);
+        assert_eq!(journal[0].action, Action::Detected);
+        assert_eq!(journal[0].rows, Some(3));
+        assert_eq!(journal[0].masked_excerpt, None);
+    }
+
+    // Review of #5: a scan whose journal write fails leaves no entry behind, so its retry does not
+    // journal the first findings twice.
+    #[actix_web::test]
+    async fn a_failed_journal_write_journals_no_finding_of_the_scan() {
+        let finding = |location: &str| Finding {
+            kind: "retention_overdue".into(),
+            location: location.into(),
+            rows: 1,
+            detail: String::new(),
+        };
+        let store = FakeStore {
+            findings: vec![finding("sessions"), finding("connection_logs")],
+            fail_journal_at: Some(1),
+            ..FakeStore::default()
+        };
+        assert!(run_database_scan(&store).await.is_err());
+        assert!(store.journal.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_interval_defaults_to_six_hours_and_zero_disables_it() {
+        assert_eq!(scan_interval(None).unwrap().as_secs(), 21_600);
+        assert_eq!(scan_interval(Some("60")).unwrap().as_secs(), 60);
+        assert_eq!(scan_interval(Some("0")), None);
+    }
+}

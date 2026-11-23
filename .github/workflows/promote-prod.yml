@@ -1,7 +1,7 @@
 name: Promote to Prod
 
 # MAIR-494: manual promotion of a commit of main to prod (mairie360/CICD promote-prod.yml).
-# `gh workflow run promote-prod.yml [-f sha=<sha>]`; the Prod environment approval still applies.
+# `gh workflow run promote-prod.yml` (add `-f sha=SHA` for a given commit); the Prod environment approval still applies.
 on:
   workflow_dispatch:
     inputs:
@@ -24,14 +24,16 @@ jobs:
       contents: write
       packages: write
       actions: read
-    uses: mairie360/CICD/.github/workflows/promote-prod.yml@v4.4.0
+    uses: mairie360/CICD/.github/workflows/promote-prod.yml@v5.14.1
     with:
       stack: apis
-      package_name: template-api
-      cicd_version: v4.4.0
+      package_name: compliance-api
+      cicd_version: v5.14.1
       sha: ${{ inputs.sha }}
     secrets:
       N8N_WEBHOOK_SECRET: ${{ secrets.N8N_WEBHOOK_SECRET }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
       RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
       RELEASE_APP_PK: ${{ secrets.RELEASE_APP_PK }}
+      ANTHROPIC_REVIEW_API_KEY: ${{ secrets.ANTHROPIC_REVIEW_API_KEY }}

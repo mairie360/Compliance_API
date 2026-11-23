@@ -4,19 +4,27 @@
 # `security-scan` service is the exit code of this script: any WARN/FAIL alert fails CI.
 #
 # The API under test is the image named by IMAGE_REF. CI sets it to the published
-# ghcr.io/mairie360/template-api:dev-<sha> image (the one promoted to staging and prod); when it is # change api name
-# empty (local usage) the image is built from development.Dockerfile as template-api:local.
+# ghcr.io/mairie360/compliance-api:dev-<sha> image (the one promoted to staging and prod); when it is
+# empty (local usage) the image is built from development.Dockerfile as compliance-api:local.
 
 COMPOSE_FILE="docker-compose-security.yml"
 SERVICE_NAME="security-scan"
 
 if [ -z "${IMAGE_REF:-}" ]; then
-    echo "==> [0/4] IMAGE_REF is empty: building template-api:local from development.Dockerfile..."
-    IMAGE_REF="template-api:local" # change api name
+    echo "==> [0/4] IMAGE_REF is empty: building compliance-api:local from development.Dockerfile..."
+    IMAGE_REF="compliance-api:local"
     docker build -f development.Dockerfile -t "$IMAGE_REF" . || exit 1
 fi
 export IMAGE_REF
 echo "==> API image under test: $IMAGE_REF"
+
+# Fresh Ed25519 key pair for this run: the API gets its public key, and SERVICE_JWT (sub=zap-scan,
+# role=service, 2 hours: only services call this API, MAIR-498) is signed with it like Core signs
+# it (MAIR-428, MAIR-680, test_secrets.sh). No key or token is committed.
+# shellcheck source=test_secrets.sh
+source "$(dirname "$0")/test_secrets.sh" || exit 1
+SERVICE_JWT="$(sign_jwt zap-scan service 7200)" || exit 1
+export SERVICE_JWT
 
 # Shared CI test files (OpenAPI coverage gate, MAIR-194: ZAP hook and k6 coverage module). CI
 # checks mairie360/CICD out as cicd-repo/; locally it is cloned once at the cicd_version pinned in

@@ -53,7 +53,10 @@ impl Modify for SecurityAddon {
                         .scheme(HttpAuthScheme::Bearer)
                         .bearer_format("JWT")
                         .description(Some(
-                            "HS256 JWT signed with the service's `JWT_SECRET` (claims `sub`, `role`, `exp`).",
+                            "Service JWT (`role: service`) signed by Core_API: EdDSA (Ed25519), \
+                             checked against `JWT_PUBLIC_KEY` (header `kid`; claims `sub`, `role`, \
+                             `exp`, `iss` `mairie360-core`, `aud` `mairie360`). HS256 tokens are \
+                             refused once `JWT_SECRET` is unset (MAIR-680).",
                         ))
                         .build(),
                 ),

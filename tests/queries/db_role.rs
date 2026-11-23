@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serial_test::serial;
 
 /// The Postgres role the API connects with in staging.
-const API_ROLE: &str = "compliance_api"; // change api name
+const API_ROLE: &str = "compliance_api";
 /// Nothing listens on port 1: these queries declare no cache key, so Redis is never used.
 const UNREACHABLE_REDIS: &str = "redis://127.0.0.1:1";
 
