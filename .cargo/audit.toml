@@ -33,5 +33,13 @@ ignore = [
     # --target all --all-features` prints nothing, it is never compiled into the binary. sqlx 0.9
     # pins 0.37. Drop it once sqlx moves to libsqlite3-sys >= 0.39.
     # Triaged 2026-11-20. Review by 2027-02-20.
-    "RUSTSEC-2026-0459"
+    "RUSTSEC-2026-0459",
+    # cookie < 0.18.3 (AES-GCM nonce reuse of private cookies after fork), fixed in cookie >= 0.18.3,
+    # which actix-web 4 (4.20 included) cannot use: it pins cookie 0.16. Only `PrivateJar::add` is
+    # affected, and it only exists with cookie's `private` feature (actix-web `secure-cookies`): this
+    # crate builds cookie with its default features only (`cargo tree -e features -i cookie`), so the
+    # function is not even compiled, and the APIs neither fork nor set private cookies. Drop it once
+    # actix-web moves to cookie >= 0.18.3, or at once if `secure-cookies` is turned on.
+    # Triaged 2026-11-23. Review by 2027-02-23.
+    "RUSTSEC-2026-0594"
 ]
