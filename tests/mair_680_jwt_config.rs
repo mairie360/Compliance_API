@@ -28,7 +28,7 @@ fn mair_680_public_key_alone_is_a_valid_configuration() {
         assert_eq!(validate_jwt_config(), Ok(()), "{public_key}");
     }
 
-    // No public key: the API must not start, even with the old shared secret.
+    // No public key: the validator rejects the configuration, even with the old shared secret.
     std::env::remove_var("JWT_PUBLIC_KEY");
     assert_eq!(validate_jwt_config(), Err(JwtConfigError::MissingPublicKey));
     // Built at run time: a literal secret in the repo would trip Gitleaks.
