@@ -1,0 +1,26 @@
+# Project and patch targets: 60 %, the same number as the 60 % line gate of `cargo cov`.
+# The checks share the number, not the measured lines: `cargo cov` gates the line coverage of the
+# whole workspace, `codecov/project` the same total as Codecov reads it, and `codecov/patch` only
+# the lines a PR changes, so a PR can pass `cargo cov` and still fail `codecov/patch`.
+# Without this file Codecov applies its default target `auto`, which compares with the base commit
+# of the PR and refuses any drop, even above 60 %.
+coverage:
+  status:
+    project:
+      default:
+        target: 60%
+        # No extra tolerance: 60 % is already the floor.
+        threshold: 0%
+        if_ci_failed: error
+    patch:
+      default:
+        target: 60%
+        threshold: 0%
+
+ignore:
+  - "tests/**"
+  - "examples/**"
+
+comment:
+  layout: "condensed_header, diff, files"
+  require_changes: true
