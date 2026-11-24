@@ -8,8 +8,8 @@
 //!
 //! The token is checked by the lib's `decode_jwt` (MAIR-680): an `EdDSA` token signed with Core's
 //! Ed25519 key (`JWT_PUBLIC_KEY`, matching `kid`, `iss` `mairie360-core`, `aud` `mairie360`) is
-//! accepted; an HS256 token is only accepted while `JWT_SECRET` is still set (transition) and is
-//! refused once it is removed, so a service that leaks its configuration can no longer forge one.
+//! accepted. Since `mairie360_api_lib` 6.0.0 every HS256 token is refused and `JWT_SECRET` is no
+//! longer read, so a service that leaks its configuration cannot forge one.
 
 use actix_web::dev::Payload;
 use actix_web::{error::ErrorUnauthorized, Error, FromRequest, HttpRequest};
@@ -23,8 +23,8 @@ pub const SERVICE_ROLE: &str = "service";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceCaller(pub String);
 
-/// Checks a bearer token with the session keys of the environment (`JWT_PUBLIC_KEY`, and
-/// `JWT_SECRET` during the transition): valid signature, not expired, role `service`.
+/// Checks a bearer token with the session keys of the environment (`JWT_PUBLIC_KEY`): valid
+/// signature, not expired, role `service`.
 ///
 /// # Errors
 ///

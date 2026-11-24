@@ -1,9 +1,9 @@
 //! Centralized erasure of a user (MAIR-498): the compliance service is the only one holding the
-//! admin rights of Keycloak and Resend and the erasure rights on S3 and Redis. An erasure is a set
+//! admin rights of Resend and the erasure rights on S3 and Redis. An erasure is a set
 //! of steps (`erasure_steps`), each idempotent, journaled as proof (`compliance_journal`, without
 //! the data) and retried until done:
 //!
-//! 1. Keycloak and Resend, which need the e-mail / Keycloak subject (`fn_erasure_targets`);
+//! 1. Resend, which needs the e-mail (`fn_erasure_targets`);
 //! 2. the database (`anonymize_user`, MAIR-289), once those are done since it clears them;
 //! 3. S3, Redis and the backup key (MAIR-500), keyed by the user id.
 
@@ -20,7 +20,6 @@ pub const DEFAULT_RETRY_SECONDS: u64 = 300;
 
 fn connector(connectors: &Connectors, step: Step) -> Option<&dyn Connector> {
     match step {
-        Step::Keycloak => Some(connectors.keycloak.as_ref()),
         Step::Resend => Some(connectors.resend.as_ref()),
         Step::S3 => Some(connectors.s3.as_ref()),
         Step::Redis => Some(connectors.redis.as_ref()),
@@ -180,7 +179,6 @@ mod tests {
         ) -> Result<Option<ErasureTargets>, StoreError> {
             Ok((!*self.anonymized.lock().unwrap()).then(|| ErasureTargets {
                 email: "jane@example.com".into(),
-                keycloak_subject: Some("kc-1".into()),
             }))
         }
         async fn ensure_steps(&self, user_id: i32) -> Result<(), StoreError> {
@@ -279,14 +277,11 @@ mod tests {
         }
     }
 
-    fn connectors(
-        keycloak_failures: usize,
-    ) -> (Connectors, Arc<AtomicUsize>, Arc<Mutex<Vec<bool>>>) {
+    fn connectors(resend_failures: usize) -> (Connectors, Arc<AtomicUsize>, Arc<Mutex<Vec<bool>>>) {
         let calls = Arc::new(AtomicUsize::new(0));
         let saw = Arc::new(Mutex::new(vec![]));
         let connectors = Connectors {
-            keycloak: FakeConnector::boxed(keycloak_failures, Outcome::Erased, &calls, &saw),
-            resend: FakeConnector::boxed(0, Outcome::Erased, &calls, &saw),
+            resend: FakeConnector::boxed(resend_failures, Outcome::Erased, &calls, &saw),
             s3: FakeConnector::boxed(0, Outcome::Erased, &calls, &saw),
             redis: FakeConnector::boxed(0, Outcome::Erased, &calls, &saw),
             backup_key: FakeConnector::boxed(0, Outcome::NotConfigured, &calls, &saw),
@@ -304,10 +299,10 @@ mod tests {
             "{steps:?}"
         );
         assert!(*store.anonymized.lock().unwrap());
-        // Keycloak and Resend saw the targets, S3 / Redis / backup key ran after the anonymization.
-        assert_eq!(*saw.lock().unwrap(), vec![true, true, false, false, false]);
+        // Resend saw the targets, S3 / Redis / backup key ran after the anonymization.
+        assert_eq!(*saw.lock().unwrap(), vec![true, false, false, false]);
         let journal = store.journal.lock().unwrap().clone();
-        assert_eq!(journal.len(), 6);
+        assert_eq!(journal.len(), 5);
         assert!(journal
             .iter()
             .all(|e| e.user_id == Some(42) && e.masked_excerpt.is_none()));
@@ -321,7 +316,7 @@ mod tests {
         );
         // A second run does nothing: every step is done.
         run_erasure(&store, &connectors, 42).await.unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 5);
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
     }
 
     #[actix_web::test]
@@ -329,9 +324,9 @@ mod tests {
         let store = MemoryStore::default();
         let (connectors, _, _) = connectors(1);
         let steps = run_erasure(&store, &connectors, 42).await.unwrap();
-        let keycloak = steps.iter().find(|s| s.step == Step::Keycloak).unwrap();
-        assert_eq!(keycloak.status, StepStatus::Failed);
-        assert_eq!(keycloak.last_error.as_deref(), Some("service answered 503"));
+        let resend = steps.iter().find(|s| s.step == Step::Resend).unwrap();
+        assert_eq!(resend.status, StepStatus::Failed);
+        assert_eq!(resend.last_error.as_deref(), Some("service answered 503"));
         assert_eq!(
             steps
                 .iter()
@@ -342,7 +337,7 @@ mod tests {
         );
         assert!(
             !*store.anonymized.lock().unwrap(),
-            "the database step waits for Keycloak"
+            "the database step waits for Resend"
         );
         assert!(store
             .journal
@@ -361,7 +356,7 @@ mod tests {
         assert_eq!(
             steps
                 .iter()
-                .find(|s| s.step == Step::Keycloak)
+                .find(|s| s.step == Step::Resend)
                 .unwrap()
                 .attempts,
             2

@@ -18,8 +18,8 @@ fn store(state: &AppState) -> PgStore {
     post,
     path = "/erasures/{userId}",
     summary = "Erase a user everywhere",
-    description = "Starts (or resumes) the erasure of the user: Keycloak account and Resend contact \
-                   (with the e-mail and Keycloak subject read first), then the database \
+    description = "Starts (or resumes) the erasure of the user: Resend contact \
+                   (with the e-mail read first), then the database \
                    (`anonymize_user`), then the S3 objects, the Redis keys and the backup key \
                    (MAIR-500). Each step is idempotent, recorded in `erasure_steps`, journaled as \
                    proof without the data, and retried in the background until done. A service \

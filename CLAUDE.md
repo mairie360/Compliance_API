@@ -9,15 +9,15 @@ GDPR compliance service of a Mairie 360 instance (MAIR-498, epic MAIR-284). One 
 instance, next to the business APIs, and concentrates what touches erasure and the detection of personal data,
 so that the business services do not carry it:
 
-- **Rights**: the only service holding the Keycloak and Resend admin rights and the erasure rights on S3 and
+- **Rights**: the only service holding the Resend admin rights and the erasure rights on S3 and
   Redis. No API and no BFF carries them.
 - **Continuous deterministic scan**: logs in the ingestion chain (masked before storage, a log store can hardly
   erase a line afterwards); the database in regular passes guided by the personal data inventory
   (Devops/Database `gdpr/inventory.yaml`: rows past their retention, erased or long-archived accounts that keep
-  usable data; the free text of messages is out of scope); S3, Keycloak, Resend; Redis keys with a long TTL only
+  usable data; the free text of messages is out of scope); S3, Resend; Redis keys with a long TTL only
   (the others expire by themselves).
 - **Erasure**: any personal data that should no longer exist (leak in a log, data of an erased user, retention
-  exceeded) is erased. When a user is erased the service propagates it: Keycloak account, Resend contact, S3
+  exceeded) is erased. When a user is erased the service propagates it: Resend contact, S3
   objects, Redis keys and the user's backup encryption key (MAIR-500). Every step is replayable and retried.
 - **Compliance journal**, without the data itself: which kind of data, where (service, storage, logger,
   column), when, and the log line with the value masked. It is also the mairie's proof of erasure (GDPR art. 28
@@ -96,8 +96,8 @@ and marks every operation outside `/api/` public (`security: []`), mirroring `ma
 **Session and service tokens (MAIR-680).** Only Core_API signs them, with its Ed25519 key (`EdDSA`, `kid` =
 RFC 7638 thumbprint, `iss` `mairie360-core`, `aud` `mairie360`). This API only gets `JWT_PUBLIC_KEY` (Core's public
 key as PEM, several `PUBLIC KEY` blocks during a rotation, `\n`-escaped line breaks accepted) and checks them with
-the lib's `decode_jwt` (4.3.0). No `JWT_SECRET`: while it is set the lib still accepts HS256 tokens signed with it
-(transition), so a deployment removes it once `JWT_PUBLIC_KEY` is in place, and every HS256 token is then refused.
+the lib's `decode_jwt`. Since lib 6.0.0 every HS256 token is refused and `JWT_SECRET` is no longer read: a deployment
+that still sets it is harmless, but `JWT_PUBLIC_KEY` is required.
 
 Every `*_test.sh` sources `test_secrets.sh` (MAIR-428, MAIR-680): a fresh Ed25519 key pair per run (an exported
 `JWT_PRIVATE_KEY` + `JWT_PUBLIC_KEY` pair wins), the public key exported for the API, and
@@ -148,9 +148,9 @@ mounted routes and catches it.
   `endpoints::db_error::classify_db_error("<resource>/<op>", &e)` and map each `DbFailure` (`NotFound`, `Conflict`,
   `InvalidReference`, `Internal`) to a variant of the handler's error enum. Never `.map_err(|_| ...)`: the
   helper logs the cause, `Internal` at `error` (MAIR-421).
-- Logs go through `tracing` (`tracing_subscriber` set up first thing in `main.rs`, level from `RUST_LOG`,
-  default `info`), which also carries actix's request log. No `println!` / `eprintln!` in new code. Responses carry
-  `X-Content-Type-Options: nosniff` (`DefaultHeaders` in `main.rs`).
+- Logs go through `tracing` (installed first thing in `main.rs` by the lib's `init_telemetry`, see "Logs and
+  observability" below), which also carries actix's request log. No `println!` / `eprintln!` in new code.
+  Responses carry `X-Content-Type-Options: nosniff` (`DefaultHeaders` in `main.rs`).
 - Ids: path and body ids are `u64` in the API and `INT4` in Postgres. Convert with the lib's `id_to_sql` /
   `id_from_sql` (or `i32::try_from` answering `400`), never `as i32`: `2^32 + 1` would wrap to `1` and alias
   another row (MAIR-422). `lib.rs` and `main.rs` deny `clippy::cast_possible_truncation`, `cast_possible_wrap`
@@ -168,6 +168,26 @@ mounted routes and catches it.
   `tx.commit().await?`. An early `?` drops `tx` and rolls back what already ran; never compensate by hand with a
   `DELETE` whose error is ignored. A single CTE statement is fine too. `tests/transaction_test.rs` is the example.
 
+## Logs and observability (MAIR-503)
+
+Logs and traces come from `mairie360_api_lib::logging::telemetry` (feature `otel`), shared by every API: `main.rs`
+only calls `init_telemetry("compliance-api")` and keeps the guard. There is no local telemetry module; read the lib
+for the details.
+
+- Logs on stdout in the format of every API: coloured text (`RUST_LOG`, default `info`), one JSON object per line
+  with `LOG_FORMAT=json`. The request root span is hidden from them (it holds the client address and query string).
+- Traces over OTLP/HTTP, opt-in: nothing is exported unless `OTEL_EXPORTER_OTLP_ENDPOINT` (or
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) is set, `OTEL_SDK_DISABLED=true` forces it off, a failing exporter is
+  logged and never stops the API. `OTEL_SERVICE_NAME` defaults to `compliance-api`.
+- `main.rs` wraps the app in the lib's `TracingLogger`, inside the request log (`middleware::Logger`, kept), so
+  refused requests get a span too. Root spans are named `<METHOD> <route pattern>` and continue an incoming
+  `traceparent`. The lib's `Redact` drops `http.client_ip` and the query string before export (MAIR-290, MAIR-501):
+  build test providers with `telemetry::tracer_provider`, never `SdkTracerProvider::builder()`.
+- Never add `opentelemetry*` / `tracing-actix-web` to `Cargo.toml`: use the lib's re-exports, its versions are
+  coupled. `tracing-subscriber` is a dev-dependency only, for the test subscriber.
+- `tests/telemetry_test.rs` asserts the request spans (status, route, continued trace id, no query string nor
+  client address); the redaction of logs and spans is tested in the lib.
+
 ## CI and Renovate
 
 `.github/workflows/cicd.yml` calls `mairie360/CICD` `APIs_cicd.yml` on pull requests (lint, build, tests) and
@@ -177,8 +197,7 @@ on pushes to `main` (plus releases and the three stacks). Its `integration_tests
 standard API config: org preset, GitHub Actions pinned by digest, the `cicd_version` custom manager and the
 `mairie360/CICD` group (both references in `cicd.yml` bumped in one PR).
 
-`auto-approve.yml` approves Renovate PRs on the PR author (`github.event.pull_request.user.login`, not
-`github.actor`), with `pull-requests: write` only and the action pinned by SHA. Both `Dockerfile`s pin their base
+`auto-approve.yml` calls the reusable auto-approval of mairie360/CICD (same tag on `uses:` and `cicd_version`), which approves a Renovate PR only while Renovate alone wrote and pushed it and takes the approval back after any other push; `pull-requests: write` only (`tests/mair_685_auto_approve.rs`). Both `Dockerfile`s pin their base
 images by digest (`tests/dockerfile_test.rs` enforces it) and build with `--locked`; the production one builds
 the dependencies in their own cached layer first (MAIR-427). Every advisory ignored in `.cargo/audit.toml` carries
 a comment saying why it does not apply and when to drop it: no bare ignore, and a patched version is taken with
@@ -209,23 +228,20 @@ Every PR requests a review from the whole team, minus its author: `CarolinHugo`,
 
 `POST /api/v1/erasures/{userId}` (service token) starts or resumes the erasure of a user, `GET`
 reads its steps (`erasure_steps`). `src/erasure/mod.rs` runs the steps in order, each idempotent,
-recorded and journaled as proof without the data (`compliance_journal`): Keycloak and Resend first
-(they need the e-mail / Keycloak subject of `fn_erasure_targets`), then the database
-(`anonymize_user`, only once those two are done since it clears them), then S3, Redis and the
+recorded and journaled as proof without the data (`compliance_journal`): Resend first
+(it needs the e-mail of `fn_erasure_targets`), then the database
+(`anonymize_user`, only once it is done since it clears the e-mail), then S3, Redis and the
 backup key (by user id). A failed step stays `failed` with a value-free reason and is retried by
 the background loop (`ERASURE_RETRY_SECONDS`, 300 by default); a service not configured on the
 instance is recorded `done` with "not configured on this instance" (`erasure_skipped`).
 Connectors (`src/erasure/connectors/`, env vars, all optional):
-- Keycloak: `KEYCLOAK_ADMIN_URL`, `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_ADMIN_CLIENT_ID`,
-  `KEYCLOAK_ADMIN_CLIENT_SECRET` (service account with `manage-users`); account by subject, else
-  by e-mail; 404 counts as erased.
 - Resend: `RESEND_API_KEY`, `RESEND_AUDIENCE_ID`, `RESEND_API_URL`; removes the audience contact.
 - S3: `S3_ENDPOINT`, `S3_REGION`, `S3_ERASURE_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
   `S3_ERASURE_PREFIX` (`users/{user_id}/`).
 - Redis: `REDIS_ERASURE_URL`, `REDIS_ERASURE_PATTERNS` (comma-separated, `{user_id}` replaced).
 - Backup key (MAIR-500): `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`, `SCW_REGION`, `KEY_MANAGER_URL`
   (tests); destroys the user's key in Scaleway Key Manager (`backup::keys`), see below.
-Tests fake the store and the connectors; Keycloak and Resend are tested against `wiremock`.
+Tests fake the store and the connectors; Resend is tested against `wiremock`. Core is the only account system: there is no Keycloak step any more (`erasure_steps` rows of that step left by earlier versions are ignored until the Database release that removes them; `Storage::Keycloak` is only read back from old journal entries).
 
 ## Log masking patterns and Redis key scan (MAIR-498)
 
@@ -266,3 +282,11 @@ before the backup Job of Devops/Deploiment hands it to restic.
   marker values, no key is in the backup, a restore with every key gives the original back, and
   after destroying one user's key the untouched backup restores that user anonymized.
 
+
+## Promotion to staging and prod (MAIR-494)
+
+A push to `main` only releases dev (`cicd.yml` stops at `release-dev`). Staging and prod are manual:
+`gh workflow run promote-staging.yml -R mairie360/Compliance_API [-f sha=<sha>]`, then `promote-prod.yml`
+(environments `Staging` / `Prod`). Staging refuses a commit without `dev-<sha>` and a green main run, and runs
+the integration, ZAP and k6 stacks on that image; prod refuses one without `staging-<sha>` and tags the version semantic-release computes
+for that commit. `cicd.yml`, `promote-staging.yml` and `promote-prod.yml` pin the same mairie360/CICD release (one Renovate group).
