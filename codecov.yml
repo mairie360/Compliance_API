@@ -1,6 +1,9 @@
-# Coverage target of the project and of each patch: 60 %, the same as the 60 % line gate of `cargo cov`.
-# Without this file Codecov applies its default target `auto`, which forbids any PR from dropping
-# below the coverage of `main`, so a patch that meets the repository gate can still fail.
+# Project and patch targets: 60 %, the same number as the 60 % line gate of `cargo cov`.
+# The checks share the number, not the measured lines: `cargo cov` gates the line coverage of the
+# whole workspace, `codecov/project` the same total as Codecov reads it, and `codecov/patch` only
+# the lines a PR changes, so a PR can pass `cargo cov` and still fail `codecov/patch`.
+# Without this file Codecov applies its default target `auto`, which compares with the base commit
+# of the PR and refuses any drop, even above 60 %.
 coverage:
   status:
     project:
